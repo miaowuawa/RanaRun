@@ -1,0 +1,7 @@
+# 忽略环境配置文件
+env_config.json
+environment_*.json
+
+# 忽略 Python 编译产物
+__pycache__/
+*.pyc
