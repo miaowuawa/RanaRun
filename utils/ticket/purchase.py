@@ -1,3 +1,36 @@
+import requests
+import json
+import time
+import random
+from utils.signer.gen import generate_signature
+from utils.urls import PAY_TICKET_URL, BASE_URL_WEB
+
+
+def get_random_delay(base_delay: float) -> float:
+    """
+    根据基准延迟生成随机延迟（±0.2秒），确保不小于0.1秒
+    """
+    random_offset = random.uniform(-0.2, 0.2)
+    actual_delay = base_delay + random_offset
+    return max(actual_delay, 0.1)
+
+
+def generate_signature_params(ticket_type_id: str) -> dict:
+    """
+    生成签名参数
+    """
+    charset = "ABCDEFGHJKMNPQRSTWXYZ"
+    nonce = ''.join(random.choices(charset, k=5))
+    timestamp = int(time.time() * 1000)
+    sign = generate_signature(timestamp, nonce, ticket_type_id)
+    
+    return {
+        "nonce": nonce,
+        "timeStamp": str(timestamp),
+        "sign": sign
+    }
+
+
 def submit_ticket_order(session: requests.Session, ticket_id: str, purchaser_id: str, base_delay: float) -> tuple[bool, bool]:
     """
     提交购票订单（增加响应提示处理、随机延迟）
@@ -14,7 +47,7 @@ def submit_ticket_order(session: requests.Session, ticket_id: str, purchaser_id:
         time.sleep(actual_delay)
 
         # 生成签名参数
-        sign_params = generate_signature_params(str(6198))
+        sign_params = generate_signature_params(ticket_id)
 
         # 构造请求数据
         request_data = {
@@ -26,10 +59,7 @@ def submit_ticket_order(session: requests.Session, ticket_id: str, purchaser_id:
             "purchaserIds": purchaser_id
         }
 
-        # 注意接口要求的特殊格式：外层是一个key为JSON字符串，value为空字符串的字典
-        payload = {json.dumps(request_data, ensure_ascii=False): ""}
-
-        response = session.post(PAY_TICKET_URL, json=payload, timeout=10)
+        response = session.post(BASE_URL_WEB+PAY_TICKET_URL, json=payload, timeout=10)
         response.raise_for_status()
         result = response.json()
 
