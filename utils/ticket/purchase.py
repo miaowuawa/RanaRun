@@ -2,17 +2,14 @@ import requests
 import json
 import time
 import random
+from rich.console import Console
+from rich.panel import Panel
+from rich.syntax import Syntax
 from utils.signer.gen import generate_signature
 from utils.urls import PAY_TICKET_URL, BASE_URL_WEB
 
-
-def get_random_delay(base_delay: float) -> float:
-    """
-    根据基准延迟生成随机延迟（±0.2秒），确保不小于0.1秒
-    """
-    random_offset = random.uniform(-0.2, 0.2)
-    actual_delay = base_delay + random_offset
-    return max(actual_delay, 0.1)
+# 创建 console 实例用于输出
+console = Console()
 
 
 def generate_signature_params(ticket_type_id: str) -> dict:
@@ -31,20 +28,19 @@ def generate_signature_params(ticket_type_id: str) -> dict:
     }
 
 
-def submit_ticket_order(session: requests.Session, ticket_id: str, purchaser_id: str, base_delay: float) -> tuple[bool, bool]:
+def submit_ticket_order(session: requests.Session, ticket_id: str, purchaser_id: str, debug_mode: bool = False) -> tuple[bool, bool, bool]:
     """
     提交购票订单（增加响应提示处理、随机延迟）
     Args:
-        base_delay: 基准延迟
+        session: 请求会话
+        ticket_id: 票种ID
+        purchaser_id: 购买者ID
+        debug_mode: 是否开启调试模式
     Returns:
-        (是否成功, 是否需要重试)
+        (是否成功, 是否需要重试, 是否应该停止)
     """
     retry_count = 0
     try:
-        # 生成并输出本次延迟
-        actual_delay = get_random_delay(base_delay)
-        print(f"[调试][下单]此次延迟：{actual_delay}秒")
-        time.sleep(actual_delay)
 
         # 生成签名参数
         sign_params = generate_signature_params(ticket_id)
@@ -59,28 +55,64 @@ def submit_ticket_order(session: requests.Session, ticket_id: str, purchaser_id:
             "purchaserIds": purchaser_id
         }
 
-        response = session.post(BASE_URL_WEB+PAY_TICKET_URL, json=payload, timeout=10)
+        response = session.post(BASE_URL_WEB+PAY_TICKET_URL, json=request_data, timeout=10)
         response.raise_for_status()
         result = response.json()
 
         # 处理响应提示
         message = result.get("message", "") if isinstance(result, dict) else str(result)
+        
+        # 检查是否限购/已购买
+        if "限购" in message or "已购买" in message or "重复" in message:
+            if debug_mode:
+                console.print(f"[yellow][调试][限购提示] {message}[/yellow]")
+            return False, False, True
+        
         if "拥挤" in message:
             retry_count += 1
-            print(f"[调试][服务器卡顿]请求阻塞，重试中（第{retry_count}次）")
-            return False, True
+            if debug_mode:
+                console.print(f"[yellow][调试][服务器卡顿] 请求阻塞，重试中（第{retry_count}次）[/yellow]")
+            return False, True, False
         if "超时" in message:
-            print(f"[调试][下单报错]请求超时，可能是网络不好，协议异常或者本地时间偏差")
-            return False, False
+            if debug_mode:
+                console.print(f"[red][调试][下单报错] 请求超时，可能是网络不好，协议异常或者本地时间偏差[/red]")
+            return False, False, False
         elif "余票" in message:
-            print(f"[调试][下单报错]可用库存不足")
-            return False, True
-        elif result.get("errorCode") == 0:
-            print(f"[调试][下单成功]抢票成功！响应内容: {json.dumps(result, ensure_ascii=False, indent=2)}")
-            return True, False
+            if debug_mode:
+                console.print(f"[yellow][调试][下单报错] 可用库存不足[/yellow]")
+            return False, True, False
+        elif result.get("isSuccess") == True:
+            if debug_mode:
+                console.print(f"[green][调试][下单成功] 抢票成功！[/green]")
+                # 使用 Syntax 高亮显示 JSON
+                result_json = json.dumps(result, ensure_ascii=False, indent=2)
+                syntax = Syntax(result_json, "json", theme="monokai", line_numbers=False)
+                console.print(Panel(syntax, title="响应内容", border_style="green"))
+            
+            # 获取 orderInfo 并转换为支付链接
+            try:
+                order_info = result.get("result", {}).get("orderInfo", "")
+                if order_info:
+                    from utils.payment.alipay_convert import AiliPay
+                    alipay = AiliPay()
+                    pay_url = alipay.convert_alipay_to_h5(order_info)
+                    console.print(f"\n[bold cyan]{'='*60}[/bold cyan]")
+                    console.print(f"[bold blue][支付链接] {pay_url}[/bold blue]")
+                    console.print(f"[bold yellow][提示] 请复制链接到浏览器打开支付，或打开手机 ALLCPP APP 支付[/bold yellow]")
+                    console.print(f"[bold cyan]{'='*60}[/bold cyan]\n")
+            except Exception as e:
+                if debug_mode:
+                    console.print(f"[red][调试][支付链接转换失败] {e}[/red]")
+            
+            return True, False, False
         else:
-            print(f"[调试][下单失败]抢票失败！响应内容: {json.dumps(result, ensure_ascii=False, indent=2)}")
-            return False, False
+            if debug_mode:
+                console.print(f"[red][调试][下单失败] 抢票失败！[/red]")
+                result_json = json.dumps(result, ensure_ascii=False, indent=2)
+                syntax = Syntax(result_json, "json", theme="monokai", line_numbers=False)
+                console.print(Panel(syntax, title="响应内容", border_style="red"))
+            return False, False, False
     except Exception as e:
-        print(f"[调试][下单失败]提交订单失败: {e}")
-        return False, True
+        if debug_mode:
+            console.print(f"[red][调试][下单失败] 提交订单失败: {e}[/red]")
+        return False, True, False

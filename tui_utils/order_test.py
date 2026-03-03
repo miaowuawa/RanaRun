@@ -231,16 +231,18 @@ def execute_order(app):
         
         # 使用 utils.ticket.purchase 中的 submit_ticket_order
         purchaser_id = app.order_config["purchaser_ids"] if is_real_name else ""
-        success, need_retry = submit_ticket_order(
+        success, need_retry, should_stop = submit_ticket_order(
             session, 
             ticket_id, 
-            purchaser_id, 
-            app.order_config["base_delay"]
+            purchaser_id,
+            app.debug_mode
         )
         
         # 根据结果显示状态
         if success:
             app.console.print("\n[green]下单成功！[/green]")
+        elif should_stop:
+            app.console.print("\n[yellow]检测到限购/已购买，请检查订单[/yellow]")
         elif need_retry:
             app.console.print("\n[yellow]下单需要重试[/yellow]")
         else:

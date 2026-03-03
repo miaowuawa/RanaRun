@@ -24,7 +24,8 @@ def show_main_menu(console: Console, debug_mode: bool):
     table.add_row("1", "环境文件管理")
     table.add_row("2", "下单测试")
     table.add_row("3", "票务信息查询")
-    table.add_row("4", f"调试模式: {'[green]开启[/green]' if debug_mode else '[red]关闭[/red]'}")
+    table.add_row("4", "[bold yellow]抢票模式[/bold yellow]")
+    table.add_row("5", f"调试模式: {'[green]开启[/green]' if debug_mode else '[red]关闭[/red]'}")
     table.add_row("0", "退出")
     
     console.print(table)

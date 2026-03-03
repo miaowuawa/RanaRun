@@ -1,0 +1,32 @@
+{
+  "env_file": "environment_21390923.json",
+  "event_id": "6198",
+  "ticket_info": {
+    "id": 5524,
+    "eventId": 6847,
+    "ticketMainId": 1860,
+    "ticketName": "普通预售票",
+    "ticketAttribute": 1,
+    "ticketPrice": 6700,
+    "purchaseNum": 5,
+    "remainderNum": 5,
+    "lockNum": 1,
+    "session": 0,
+    "sellStartTime": 1770717600000,
+    "sellEndTime": 1772812800000,
+    "openTimer": -1838355327,
+    "ticketDescription": "最早10点进场，随票含有：明信片x2，拍立得x4，徽章x2",
+    "ticketGPStartTime": 1772848800000,
+    "ticketGPEndTime": 1772875800000,
+    "realnameAuth": false,
+    "square": "",
+    "createTime": null,
+    "updateTime": 1772542080553
+  },
+  "purchaser_ids": "",
+  "ticket_count": 2,
+  "resale_mode": "merge",
+  "refresh_delay": 150,
+  "order_delay": 150,
+  "purchase_limit": 5
+}

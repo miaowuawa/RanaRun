@@ -6,12 +6,15 @@ from tui_utils.menus import (
     show_order_test_menu,
     show_ticket_query_menu
 )
+from tui_utils.snipe_menu import show_snipe_menu, show_resale_config_menu
 from tui_utils.menu_handlers import (
     handle_main_menu,
     handle_env_management,
     handle_order_test,
-    handle_ticket_query
+    handle_ticket_query,
+    handle_snipe_menu
 )
+from tui_utils.resale_mode import resale_config_loop
 
 
 class TUIApp:
@@ -28,12 +31,23 @@ class TUIApp:
             "ticket_count": 1,
             "base_delay": 0.5
         }
+        # 回流模式配置
+        self.resale_config = {
+            "env_file": None,
+            "event_id": None,
+            "ticket_info": None,
+            "purchaser_ids": None,
+            "ticket_count": 1,
+            "resale_mode": "split",  # split=拆分回流, merge=合并回流
+            "refresh_delay": 150,  # 刷新延迟(ms)
+            "order_delay": 150     # 下单延迟(ms)
+        }
         
     def run(self):
         while self.running:
             if self.current_menu == "main":
                 show_main_menu(self.console, self.debug_mode)
-                choice = Prompt.ask("\n请选择功能", choices=["0", "1", "2", "3", "4"], default="0")
+                choice = Prompt.ask("\n请选择功能", choices=["0", "1", "2", "3", "4", "5"], default="0")
                 handle_main_menu(self, choice)
             elif self.current_menu == "env_management":
                 show_env_management_menu(self.console)
@@ -47,6 +61,13 @@ class TUIApp:
                 show_ticket_query_menu(self.console)
                 choice = Prompt.ask("\n请选择功能", choices=["0", "1", "2", "3", "4"], default="0")
                 handle_ticket_query(self, choice)
+            elif self.current_menu == "snipe":
+                show_snipe_menu(self.console)
+                choice = Prompt.ask("\n请选择模式", choices=["0", "1", "2"], default="0")
+                handle_snipe_menu(self, choice)
+            elif self.current_menu == "resale_config":
+                # 回流模式配置循环
+                resale_config_loop(self)
                 
         self.console.print("\n[green]感谢使用，再见！[/green]")
 

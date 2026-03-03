@@ -9,6 +9,8 @@ def handle_main_menu(app, choice: str):
     elif choice == "3":
         app.current_menu = "ticket_query"
     elif choice == "4":
+        app.current_menu = "snipe"
+    elif choice == "5":
         app.debug_mode = not app.debug_mode
         app.console.print(f"\n[green]调试模式已{'开启' if app.debug_mode else '关闭'}[/green]")
         Prompt.ask("按回车键继续", default="")
@@ -78,6 +80,21 @@ def handle_ticket_query(app, choice: str):
         view_ticket_info(app)
     elif choice == "4":
         view_purchaser_list(app)
+    elif choice == "0":
+        app.current_menu = "main"
+    else:
+        app.console.print("[red]无效的选项，请重新选择[/red]")
+
+
+def handle_snipe_menu(app, choice: str):
+    """处理抢票菜单选择"""
+    if choice == "1":
+        # 预售模式 - 暂未实现
+        app.console.print("\n[yellow]预售模式开发中...[/yellow]")
+        Prompt.ask("按回车键继续", default="")
+    elif choice == "2":
+        # 回流模式
+        app.current_menu = "resale_config"
     elif choice == "0":
         app.current_menu = "main"
     else:

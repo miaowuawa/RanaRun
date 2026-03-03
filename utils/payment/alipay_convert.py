@@ -1,3 +1,16 @@
+import base64
+import json
+import requests
+from Crypto.Cipher import DES3
+from Crypto.Util.Padding import pad, unpad
+from Crypto.PublicKey import RSA
+from Crypto.Cipher import PKCS1_v1_5 as Cipher_pkcs1_v1_5
+import urllib3
+
+# 禁用SSL警告
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+
 class AiliPay(object):
     def __init__(self):
         self.private_key = '''-----BEGIN RSA PRIVATE KEY-----
