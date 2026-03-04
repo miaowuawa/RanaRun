@@ -2,6 +2,7 @@ import os
 import json
 from rich.table import Table
 from rich.prompt import Prompt
+from rich import box
 from utils.env2sess import generate_environment_file
 
 

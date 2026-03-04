@@ -121,7 +121,7 @@ def calc_sign(ts: str, nonce: str, ticket_type_id: str) -> str:
 
 def get_random_delay(base_delay: float) -> float:
     """
-    根据基准延迟生成随机延迟（±0.2秒），确保不小于0.1秒
+    根据基准延迟生成随机延迟（±0.2秒 + 10-50ms随机延迟），确保不小于0.1秒
     Args:
         base_delay: 基准延迟
     Returns:
@@ -129,7 +129,9 @@ def get_random_delay(base_delay: float) -> float:
     """
     # 生成-0.2到+0.2之间的随机数
     random_offset = random.uniform(-0.2, 0.2)
-    actual_delay = base_delay + random_offset
+    # 生成10-50ms的随机延迟
+    ms_delay = random.uniform(0.01, 0.05)
+    actual_delay = base_delay + random_offset + ms_delay
     # 确保延迟不小于0.1秒
     actual_delay = max(0.1, actual_delay)
     return round(actual_delay, 3)

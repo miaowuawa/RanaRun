@@ -5,3 +5,5 @@ environment_*.json
 # 忽略 Python 编译产物
 __pycache__/
 *.pyc
+.resale_config.json
+presale_config.json

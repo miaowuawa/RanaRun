@@ -89,9 +89,8 @@ def handle_ticket_query(app, choice: str):
 def handle_snipe_menu(app, choice: str):
     """处理抢票菜单选择"""
     if choice == "1":
-        # 预售模式 - 暂未实现
-        app.console.print("\n[yellow]预售模式开发中...[/yellow]")
-        Prompt.ask("按回车键继续", default="")
+        # 预售模式
+        app.current_menu = "presale_config"
     elif choice == "2":
         # 回流模式
         app.current_menu = "resale_config"

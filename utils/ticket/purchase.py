@@ -12,6 +12,63 @@ from utils.urls import PAY_TICKET_URL, BASE_URL_WEB
 console = Console()
 
 
+def check_ip_blocked(response: requests.Response, result: dict) -> bool:
+    """
+    检查是否IP被风控
+    Args:
+        response: HTTP响应
+        result: 解析后的JSON结果
+    Returns:
+        True: IP被风控, False: 正常
+    """
+    # 检查状态码是否为403
+    if response.status_code == 403:
+        return True
+    
+    # 检查返回内容中是否包含acl和custom关键字
+    if isinstance(result, dict):
+        message = str(result.get("message", ""))
+        response_text = json.dumps(result, ensure_ascii=False)
+        
+        if "acl" in message.lower() or "custom" in message.lower():
+            return True
+        if "acl" in response_text.lower() and "custom" in response_text.lower():
+            return True
+    
+    return False
+
+
+def wait_if_ip_blocked(response: requests.Response, result: dict, debug_mode: bool = False) -> bool:
+    """
+    如果IP被风控，等待10分钟后重试
+    Args:
+        response: HTTP响应
+        result: 解析后的JSON结果
+        debug_mode: 是否开启调试模式
+    Returns:
+        True: IP被风控已等待, False: 正常
+    """
+    if check_ip_blocked(response, result):
+        console.print("\n[bold red]⚠️ 警告：IP已被风控！[/bold red]")
+        console.print("[yellow]检测到403错误且响应中包含acl/custom关键字[/yellow]")
+        console.print("[yellow]等待10分钟后重试...[/yellow]")
+        
+        if debug_mode:
+            console.print(f"[调试]响应状态码: {response.status_code}")
+            console.print(f"[调试]响应内容: {json.dumps(result, ensure_ascii=False, indent=2)}")
+        
+        # 等待10分钟
+        for i in range(600, 0, -1):
+            if i % 60 == 0:
+                console.print(f"[dim]剩余等待时间: {i//60}分钟[/dim]")
+            time.sleep(1)
+        
+        console.print("[green]等待结束，继续重试...[/green]")
+        return True
+    
+    return False
+
+
 def generate_signature_params(ticket_type_id: str) -> dict:
     """
     生成签名参数
@@ -28,7 +85,7 @@ def generate_signature_params(ticket_type_id: str) -> dict:
     }
 
 
-def submit_ticket_order(session: requests.Session, ticket_id: str, purchaser_id: str, debug_mode: bool = False) -> tuple[bool, bool, bool]:
+def submit_ticket_order(session: requests.Session, ticket_id: str, purchaser_id: str, debug_mode: bool = False, count: int = 1) -> tuple[bool, bool, bool]:
     """
     提交购票订单（增加响应提示处理、随机延迟）
     Args:
@@ -36,6 +93,7 @@ def submit_ticket_order(session: requests.Session, ticket_id: str, purchaser_id:
         ticket_id: 票种ID
         purchaser_id: 购买者ID
         debug_mode: 是否开启调试模式
+        count: 购买数量，默认为1
     Returns:
         (是否成功, 是否需要重试, 是否应该停止)
     """
@@ -51,14 +109,23 @@ def submit_ticket_order(session: requests.Session, ticket_id: str, purchaser_id:
             "nonce": sign_params["nonce"],
             "sign": sign_params["sign"],
             "ticketTypeId": ticket_id,
-            "count": 1,
+            "count": count,
             "purchaserIds": purchaser_id
         }
 
         response = session.post(BASE_URL_WEB+PAY_TICKET_URL, json=request_data, timeout=10)
+        
+        # 检查是否IP被风控
+        try:
+            result = response.json()
+        except:
+            result = {}
+        
+        if wait_if_ip_blocked(response, result, debug_mode):
+            return False, True, False  # 需要重试
+        
         response.raise_for_status()
-        result = response.json()
-
+        
         # 处理响应提示
         message = result.get("message", "") if isinstance(result, dict) else str(result)
         
@@ -96,6 +163,7 @@ def submit_ticket_order(session: requests.Session, ticket_id: str, purchaser_id:
                     from utils.payment.alipay_convert import AiliPay
                     alipay = AiliPay()
                     pay_url = alipay.convert_alipay_to_h5(order_info)
+                    console.clear()
                     console.print(f"\n[bold cyan]{'='*60}[/bold cyan]")
                     console.print(f"[bold blue][支付链接] {pay_url}[/bold blue]")
                     console.print(f"[bold yellow][提示] 请复制链接到浏览器打开支付，或打开手机 ALLCPP APP 支付[/bold yellow]")

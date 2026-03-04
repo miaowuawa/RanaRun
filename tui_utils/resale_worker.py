@@ -3,6 +3,7 @@ import sys
 import json
 import time
 import subprocess
+import random
 
 # 添加项目根目录到路径
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -16,18 +17,46 @@ from rich.live import Live
 from rich.layout import Layout
 from rich.syntax import Syntax
 
-from utils.session import env_to_request_session
+from utils.env2sess import env_to_request_session
 from utils.ticket.purchase import submit_ticket_order
-from utils.urls import CHECK_TICKET_URL, BASE_URL_WEB
+from utils.ticket.check import get_ticket_type_list
 
 console = Console()
 
 
+def get_random_delay_ms(base_delay_ms: int) -> float:
+    """
+    生成随机延迟（基准延迟 ± 10-50ms）
+    Args:
+        base_delay_ms: 基准延迟（毫秒）
+    Returns:
+        随机延迟（秒）
+    """
+    random_offset = random.uniform(-0.05, 0.05)
+    ms_delay = random.uniform(0.01, 0.05)
+    actual_delay = (base_delay_ms / 1000) + random_offset + ms_delay
+    return max(0.01, actual_delay)
+
+
 def log_message(logs, message):
-    """添加日志消息"""
+    """添加日志消息，合并重复消息"""
     timestamp = time.strftime("%H:%M:%S")
-    logs.append(f"[{timestamp}] {message}")
-    # 只保留最近50条日志
+    new_log = f"[{timestamp}] {message}"
+    
+    if logs:
+        last_log = logs[-1]
+        if "无票，继续尝试刷新" in last_log:
+            import re
+            match = re.search(r'无票，继续尝试刷新.*?(\d+)次\)$', last_log)
+            if match:
+                count = int(match.group(1)) + 1
+                logs[-1] = re.sub(r'\(\d+次\)$', f'({count}次)', last_log)
+                return
+            elif "无票，继续尝试刷新……" in last_log and "次" not in last_log:
+                logs[-1] = last_log.replace("无票，继续尝试刷新……", "无票，继续尝试刷新…… (2次)")
+                return
+    
+    logs.append(new_log)
     if len(logs) > 50:
         logs.pop(0)
 
@@ -106,128 +135,156 @@ def run_resale_mode(config_file):
     order_attempts = 0
     success_count = 0
     purchaser_index = 0  # 当前使用的购买人索引（拆分模式用）
+    current_stock = 0
+    
+    # 创建初始状态表格
+    layout = create_status_table(check_count, order_attempts, success_count, ticket_count, current_stock, logs, ticket_info.get('ticketName') or ticket_info.get('name', ''))
     
     try:
-        while True:
-            check_count += 1
-            
-            # 检测余票
-            try:
-                check_url = f"{BASE_URL_WEB}{CHECK_TICKET_URL}{ticket_id}"
-                response = session.get(check_url, timeout=10)
-                response.raise_for_status()
-                data = response.json()
+        with Live(layout, console=console, refresh_per_second=4, screen=False) as live:
+            while True:
+                check_count += 1
                 
-                if data.get("isSuccess"):
-                    result = data.get("result", {})
-                    current_stock = result.get("stock", 0)
+                # 检测余票 - 使用check.py中的函数
+                try:
+                    ticket_data = get_ticket_type_list(session, event_id, refresh_delay)
                     
-                    # 更新显示
-                    if check_count % 10 == 0:  # 每10次检测显示一次状态
-                        log_message(logs, f"检测中... 余票: {current_stock}")
-                    
-                    # 有余票则尝试下单
-                    if current_stock > 0:
-                        log_message(logs, f"[green]检测到余票: {current_stock}张[/green]")
+                    if ticket_data and "ticketTypeList" in ticket_data:
+                        ticket_list = ticket_data.get("ticketTypeList", [])
                         
-                        # 应用下单延迟
-                        if order_delay > 0:
-                            time.sleep(order_delay)
-                        
-                        if resale_mode == "split":
-                            # 拆分回流模式：一次只下1张
-                            order_attempts += 1
-                            log_message(logs, f"第{order_attempts}次下单尝试（拆分模式，1张）...")
-                            
-                            # 获取购买人ID
-                            purchaser_id = ""
-                            if is_real_name and purchaser_id_list:
-                                if purchaser_index < len(purchaser_id_list):
-                                    purchaser_id = purchaser_id_list[purchaser_index]
-                                else:
-                                    # 购买人用完了，使用第一个
-                                    purchaser_id = purchaser_id_list[0]
-                            
-                            success, need_retry, should_stop = submit_ticket_order(
-                                session,
-                                ticket_id,
-                                purchaser_id,
-                                debug_mode
-                            )
-                            
-                            if success:
-                                success_count += 1
-                                purchaser_index += 1  # 下一个购买人
-                                log_message(logs, f"[green]下单成功! 当前成功: {success_count}张[/green]")
-                                console.print(f"\n[bold green]✓ 下单成功! 当前成功: {success_count}张[/bold green]")
-                                
-                                # 如果已经达到目标张数，停止
-                                if success_count >= ticket_count:
-                                    console.print(f"\n[bold green]已达到目标张数 {ticket_count}，停止抢票[/bold green]")
-                                    break
-                            elif should_stop:
-                                # 限购/已购买，停止抢票
-                                console.print(f"\n[bold yellow]检测到限购/已购买，停止抢票[/bold yellow]")
-                                console.print("[yellow]该账号可能已经购买过此票种，请检查订单[/yellow]")
+                        # 查找目标票种的库存
+                        current_stock = 0
+                        for ticket in ticket_list:
+                            if str(ticket.get("id")) == ticket_id:
+                                current_stock = ticket.get("remainderNum", 0)
                                 break
-                            else:
-                                if need_retry:
-                                    log_message(logs, "[yellow]下单失败，需要重试[/yellow]")
-                                else:
-                                    log_message(logs, "[red]下单失败，无需重试[/red]")
                         
+                        # 有余票则尝试下单
+                        if current_stock > 0:
+                            log_message(logs, f"[green]检测到余票: {current_stock}张[/green]")
+                            layout = create_status_table(check_count, order_attempts, success_count, ticket_count, current_stock, logs, ticket_info.get('ticketName') or ticket_info.get('name', ''))
+                            live.update(layout)
+                            
+                            # 应用下单延迟（带随机偏移）
+                            if order_delay > 0:
+                                actual_delay = get_random_delay_ms(int(order_delay * 1000))
+                                time.sleep(actual_delay)
+                            
+                            if resale_mode == "split":
+                                # 拆分回流模式：一次只下1张
+                                order_attempts += 1
+                                log_message(logs, f"第{order_attempts}次下单尝试（拆分模式，1张）...")
+                                layout = create_status_table(check_count, order_attempts, success_count, ticket_count, current_stock, logs, ticket_info.get('ticketName') or ticket_info.get('name', ''))
+                                live.update(layout)
+                                
+                                # 获取购买人ID
+                                purchaser_id = ""
+                                if is_real_name and purchaser_id_list:
+                                    if purchaser_index < len(purchaser_id_list):
+                                        purchaser_id = purchaser_id_list[purchaser_index]
+                                    else:
+                                        purchaser_id = purchaser_id_list[0]
+                                
+                                success, need_retry, should_stop = submit_ticket_order(
+                                    session,
+                                    ticket_id,
+                                    purchaser_id,
+                                    debug_mode
+                                )
+                                
+                                if success:
+                                    success_count += 1
+                                    purchaser_index += 1
+                                    log_message(logs, f"[green]下单成功! 当前成功: {success_count}张[/green]")
+                                    layout = create_status_table(check_count, order_attempts, success_count, ticket_count, current_stock, logs, ticket_info.get('ticketName') or ticket_info.get('name', ''))
+                                    live.update(layout)
+                                    
+                                    if success_count >= ticket_count:
+                                        log_message(logs, f"[green]已达到目标张数 {ticket_count}，停止抢票[/green]")
+                                        layout = create_status_table(check_count, order_attempts, success_count, ticket_count, current_stock, logs, ticket_info.get('ticketName') or ticket_info.get('name', ''))
+                                        live.update(layout)
+                                        break
+                                elif should_stop:
+                                    log_message(logs, "[yellow]检测到限购/已购买，停止抢票[/yellow]")
+                                    layout = create_status_table(check_count, order_attempts, success_count, ticket_count, current_stock, logs, ticket_info.get('ticketName') or ticket_info.get('name', ''))
+                                    live.update(layout)
+                                    break
+                                else:
+                                    if need_retry:
+                                        log_message(logs, "[yellow]下单失败，需要重试[/yellow]")
+                                    else:
+                                        log_message(logs, "[red]下单失败，无需重试[/red]")
+                                    layout = create_status_table(check_count, order_attempts, success_count, ticket_count, current_stock, logs, ticket_info.get('ticketName') or ticket_info.get('name', ''))
+                                    live.update(layout)
+                            
+                            else:
+                                # 合并回流模式：一次下单多张
+                                order_attempts += 1
+                                remaining = ticket_count - success_count
+                                order_count = min(remaining, current_stock)
+                                
+                                log_message(logs, f"第{order_attempts}次下单尝试（合并模式，{order_count}张）...")
+                                layout = create_status_table(check_count, order_attempts, success_count, ticket_count, current_stock, logs, ticket_info.get('ticketName') or ticket_info.get('name', ''))
+                                live.update(layout)
+                                
+                                purchaser_id = ""
+                                if is_real_name and purchaser_id_list:
+                                    needed_count = min(order_count, len(purchaser_id_list))
+                                    purchaser_id = ",".join(purchaser_id_list[:needed_count])
+                                
+                                success, need_retry, should_stop = submit_ticket_order_merge(
+                                    session,
+                                    ticket_id,
+                                    purchaser_id,
+                                    order_count,
+                                    debug_mode
+                                )
+                                
+                                if success:
+                                    success_count += order_count
+                                    log_message(logs, f"[green]下单成功! 当前成功: {success_count}张[/green]")
+                                    layout = create_status_table(check_count, order_attempts, success_count, ticket_count, current_stock, logs, ticket_info.get('ticketName') or ticket_info.get('name', ''))
+                                    live.update(layout)
+                                    
+                                    if success_count >= ticket_count:
+                                        log_message(logs, f"[green]已达到目标张数 {ticket_count}，停止抢票[/green]")
+                                        layout = create_status_table(check_count, order_attempts, success_count, ticket_count, current_stock, logs, ticket_info.get('ticketName') or ticket_info.get('name', ''))
+                                        live.update(layout)
+                                        break
+                                elif should_stop:
+                                    log_message(logs, "[yellow]检测到限购/已购买，停止抢票[/yellow]")
+                                    layout = create_status_table(check_count, order_attempts, success_count, ticket_count, current_stock, logs, ticket_info.get('ticketName') or ticket_info.get('name', ''))
+                                    live.update(layout)
+                                    break
+                                else:
+                                    if need_retry:
+                                        log_message(logs, "[yellow]下单失败，需要重试[/yellow]")
+                                    else:
+                                        log_message(logs, "[red]下单失败，无需重试[/red]")
+                                    layout = create_status_table(check_count, order_attempts, success_count, ticket_count, current_stock, logs, ticket_info.get('ticketName') or ticket_info.get('name', ''))
+                                    live.update(layout)
                         else:
-                            # 合并回流模式：一次下单多张
-                            order_attempts += 1
-                            # 计算本次下单数量（剩余需要的张数）
-                            remaining = ticket_count - success_count
-                            order_count = min(remaining, current_stock)
-                            
-                            log_message(logs, f"第{order_attempts}次下单尝试（合并模式，{order_count}张）...")
-                            
-                            # 获取购买人ID（合并模式需要多个购买人）
-                            purchaser_id = ""
-                            if is_real_name and purchaser_id_list:
-                                # 取需要的购买人ID
-                                needed_count = min(order_count, len(purchaser_id_list))
-                                purchaser_id = ",".join(purchaser_id_list[:needed_count])
-                            
-                            success, need_retry, should_stop = submit_ticket_order_merge(
-                                session,
-                                ticket_id,
-                                purchaser_id,
-                                order_count,
-                                debug_mode
-                            )
-                            
-                            if success:
-                                success_count += order_count
-                                log_message(logs, f"[green]下单成功! 当前成功: {success_count}张[/green]")
-                                console.print(f"\n[bold green]✓ 下单成功! 本次{order_count}张，当前成功: {success_count}张[/bold green]")
-                                
-                                # 如果已经达到目标张数，停止
-                                if success_count >= ticket_count:
-                                    console.print(f"\n[bold green]已达到目标张数 {ticket_count}，停止抢票[/bold green]")
-                                    break
-                            elif should_stop:
-                                # 限购/已购买，停止抢票
-                                console.print(f"\n[bold yellow]检测到限购/已购买，停止抢票[/bold yellow]")
-                                console.print("[yellow]该账号可能已经购买过此票种，请检查订单[/yellow]")
-                                break
-                            else:
-                                if need_retry:
-                                    log_message(logs, "[yellow]下单失败，需要重试[/yellow]")
-                                else:
-                                    log_message(logs, "[red]下单失败，无需重试[/red]")
-                
-                # 等待刷新延迟
-                time.sleep(refresh_delay)
-                
-            except KeyboardInterrupt:
-                raise
-            except Exception as e:
-                log_message(logs, f"[red]检测出错: {e}[/red]")
-                time.sleep(refresh_delay)
+                            # 无票，记录日志
+                            log_message(logs, "无票，继续尝试刷新……")
+                            layout = create_status_table(check_count, order_attempts, success_count, ticket_count, current_stock, logs, ticket_info.get('ticketName') or ticket_info.get('name', ''))
+                            live.update(layout)
+                    else:
+                        # 请求失败
+                        log_message(logs, "[red]检测失败，正在重试...[/red]")
+                        layout = create_status_table(check_count, order_attempts, success_count, ticket_count, current_stock, logs, ticket_info.get('ticketName') or ticket_info.get('name', ''))
+                        live.update(layout)
+                    
+                    # 等待刷新延迟（带随机偏移）
+                    actual_refresh_delay = get_random_delay_ms(int(refresh_delay * 1000))
+                    time.sleep(actual_refresh_delay)
+                    
+                except KeyboardInterrupt:
+                    raise
+                except Exception as e:
+                    log_message(logs, f"[red]检测出错: {e}[/red]")
+                    layout = create_status_table(check_count, order_attempts, success_count, ticket_count, current_stock, logs, ticket_info.get('ticketName') or ticket_info.get('name', ''))
+                    live.update(layout)
+                    time.sleep(refresh_delay)
     
     except KeyboardInterrupt:
         console.print("\n\n[yellow]用户取消抢票[/yellow]")
@@ -265,8 +322,18 @@ def submit_ticket_order_merge(session, ticket_id: str, purchaser_id: str, count:
         }
 
         response = session.post(BASE_URL_WEB + PAY_TICKET_URL, json=request_data, timeout=10)
+        
+        # 检查是否IP被风控
+        try:
+            result = response.json()
+        except:
+            result = {}
+        
+        from utils.ticket.check import wait_if_ip_blocked
+        if wait_if_ip_blocked(response, result):
+            return False, True, False  # 需要重试
+        
         response.raise_for_status()
-        result = response.json()
 
         # 处理响应提示
         message = result.get("message", "") if isinstance(result, dict) else str(result)
@@ -303,6 +370,7 @@ def submit_ticket_order_merge(session, ticket_id: str, purchaser_id: str, count:
                     from utils.payment.alipay_convert import AiliPay
                     alipay = AiliPay()
                     pay_url = alipay.convert_alipay_to_h5(order_info)
+                    console.clear()
                     console.print(f"\n[bold cyan]{'='*60}[/bold cyan]")
                     console.print(f"[bold blue][支付链接] {pay_url}[/bold blue]")
                     console.print(f"[bold yellow][提示] 请复制链接到浏览器打开支付，或打开手机 ALLCPP APP 支付[/bold yellow]")
@@ -326,13 +394,23 @@ def submit_ticket_order_merge(session, ticket_id: str, purchaser_id: str, count:
 
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        console.print("[red]错误: 未提供配置文件路径[/red]")
-        sys.exit(1)
-    
-    config_file = sys.argv[1]
-    if not os.path.exists(config_file):
-        console.print(f"[red]错误: 配置文件不存在: {config_file}[/red]")
-        sys.exit(1)
-    
-    run_resale_mode(config_file)
+    try:
+        if len(sys.argv) < 2:
+            console.print("[red]错误: 未提供配置文件路径[/red]")
+            sys.exit(1)
+        
+        config_file = sys.argv[1]
+        if not os.path.exists(config_file):
+            console.print(f"[red]错误: 配置文件不存在: {config_file}[/red]")
+            sys.exit(1)
+        
+        run_resale_mode(config_file)
+    except KeyboardInterrupt:
+        console.print("\n[yellow]程序已被用户中断[/yellow]")
+    except Exception as e:
+        console.print(f"[red]程序运行出错: {e}[/red]")
+        import traceback
+        traceback.print_exc()
+    finally:
+        console.print("\n[yellow]请按任意键继续...[/yellow]")
+        input()

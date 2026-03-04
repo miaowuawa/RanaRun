@@ -15,6 +15,7 @@ from tui_utils.menu_handlers import (
     handle_snipe_menu
 )
 from tui_utils.resale_mode import resale_config_loop
+from tui_utils.presale_mode import presale_config_loop
 
 
 class TUIApp:
@@ -42,6 +43,20 @@ class TUIApp:
             "refresh_delay": 150,  # 刷新延迟(ms)
             "order_delay": 150     # 下单延迟(ms)
         }
+        # 预售模式配置
+        self.presale_config = {
+            "env_file": None,
+            "event_id": None,
+            "ticket_info": None,
+            "purchaser_ids": None,
+            "ticket_count": 1,
+            "presale_mode": "merge",  # merge=合并抢票, split=分离抢票
+            "presale_time": None,    # 开抢时间
+            "presale_delay": 180,    # 抢票延迟(ms)
+            "reflux_timeout": 5,     # 转入回流时间(分钟)
+            "burst_delay": 90,       # 爆发模式延迟(ms)
+            "time_offset": 0         # 时间偏移(秒)
+        }
         
     def run(self):
         while self.running:
@@ -68,6 +83,9 @@ class TUIApp:
             elif self.current_menu == "resale_config":
                 # 回流模式配置循环
                 resale_config_loop(self)
+            elif self.current_menu == "presale_config":
+                # 预售模式配置循环
+                presale_config_loop(self)
                 
         self.console.print("\n[green]感谢使用，再见！[/green]")
 
