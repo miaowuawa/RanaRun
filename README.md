@@ -34,7 +34,7 @@ RanaRun乐奈快跑
 5. 一旦有票后自动下单，立即扫描弹出的支付宝二维码
 
 ### 工作原理：
-
+```mermaid
 flowchart TD
     A[预售时间到/回流放票] --> B[打开购票页面]
     
@@ -60,5 +60,7 @@ flowchart TD
     
     classDef manual fill:#bbf,stroke:#333,stroke-width:2px;
     class F,J manual;
+```
+
 
 **还没有完工，用不了**
