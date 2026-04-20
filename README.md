@@ -63,4 +63,50 @@ flowchart TD
 ```
 
 
-**还没有完工，用不了**
+## 运行方式
+
+### 方式一：WebUI（推荐）
+
+WebUI提供直观的网页界面，支持所有功能，包括环境管理、票务查询、抢票进程管理等。
+
+```bash
+# 启动 WebUI 服务器
+python webui_server.py
+
+# 或使用自定义端口
+python webui_server.py --port 8080
+
+# 或只绑定本地地址
+python webui_server.py --host 127.0.0.1 --port 8090
+```
+
+启动后访问 `http://localhost:5000`（或你指定的地址）即可使用。
+
+### 方式二：TUI（终端界面）
+
+TUI提供终端交互界面，适合习惯命令行操作的用户。
+
+```bash
+# 启动 TUI
+python main.py
+```
+
+### 环境要求
+
+- Python 3.8+
+- 依赖包：`requests`, `flask`, `flask-cors`, `rich` 等
+
+```bash
+# 安装依赖
+pip install -r requirements.txt
+```
+
+### 快速开始
+
+1. **启动 WebUI**：`python webui_server.py`
+2. **创建环境**：在网页上点击"创建环境"，填写环境名称
+3. **登录账号**：选择环境，点击"登录"，输入手机号和验证码
+4. **开始抢票**：
+   - **预售模式**：配置活动ID、票种、购买人，设置延迟参数
+   - **回流模式**：配置活动ID、票种，设置刷新间隔
+5. **查看进程**：在"抢票进程"页面查看和管理所有抢票任务
