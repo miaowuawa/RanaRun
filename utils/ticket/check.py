@@ -13,16 +13,15 @@ def check_ip_blocked(response: requests.Response, result: dict) -> bool:
     """
     检查是否IP被风控
     """
-    if response.status_code == 403:
-        return True
+
     
     if isinstance(result, dict):
         message = str(result.get("message", ""))
         response_text = json.dumps(result, ensure_ascii=False)
         
-        if "acl" in message.lower() or "custom" in message.lower():
+        if "acl" in message.lower() or "custom" in message.lower() and response.status_code == 403:
             return True
-        if "acl" in response_text.lower() and "custom" in response_text.lower():
+        if "acl" in response_text.lower() and "custom" in response_text.lower() and response.status_code == 403:
             return True
     
     return False
@@ -91,13 +90,14 @@ def get_random_delay(base_delay: float) -> float:
     return round(actual_delay, 3)
 
 
-def get_ticket_type_list(session: requests.Session, event_main_id: str, base_delay: float) -> Optional[dict]:
+def get_ticket_type_list(session: requests.Session, event_main_id: str, base_delay: float, debug_mode: bool = False) -> Optional[dict]:
     """
     获取票种列表
     Args:
         session: requests会话
         event_main_id: 项目ID
         base_delay: 基准延迟
+        debug_mode: 是否开启调试模式
     Returns:
         原始响应数据 {"ticketMain": {..., "ticketTypeList": [...]}}，失败返回None
     """
@@ -107,17 +107,21 @@ def get_ticket_type_list(session: requests.Session, event_main_id: str, base_del
     try:
         params = {"eventMainId": event_main_id}
         url = BASE_URL_WEB + GET_TICKET_TYPE_URL
-        
+
         response = session.get(url, params=params, timeout=10)
-        
         try:
             result = response.json()
         except:
             result = {}
-        
+
+        # 调试模式：打印原始响应
+        if debug_mode:
+            print(f"[调试] HTTP状态码: {response.status_code}")
+            print(f"[调试] 原始响应: {json.dumps(result, ensure_ascii=False, indent=2)[:500]}...")
+
         if wait_if_ip_blocked(response, result):
             return None
-        
+
         response.raise_for_status()
 
         if session.cookies:
@@ -125,9 +129,11 @@ def get_ticket_type_list(session: requests.Session, event_main_id: str, base_del
             for key, value in session.cookies.items():
                 new_cookies.append(f"{key}={value}")
             new_cookie_str = "; ".join(new_cookies)
-        
+
         return result
     except Exception as e:
+        if debug_mode:
+            print(f"[调试] 获取票种信息异常: {e}")
         return None
 
 
@@ -163,7 +169,7 @@ def get_ticket_info(session: requests.Session, ticket_id: str, base_delay: float
     except Exception as e:
         return None
     
-def get_purchaser_list(session: requests.Session, base_delay: float) -> Optional[List[dict]]:
+def get_purchaser_list(session: requests.Session, base_delay: float = 0.5) -> Optional[List[dict]]:
     """
     获取购票人列表（增加随机延迟和提示）
     Args:

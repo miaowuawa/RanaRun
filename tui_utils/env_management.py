@@ -19,26 +19,30 @@ def get_env_files(app):
 
 def create_virtual_device(app):
     from tui_utils.menus import show_header
-    
+
     app.console.clear()
     show_header(app.console)
     app.console.print("\n[cyan]创建虚拟环境[/cyan]")
-    
+
     name = Prompt.ask("请输入环境名称")
     if not name:
         app.console.print("[yellow]已取消创建[/yellow]")
         Prompt.ask("按回车键继续", default="")
         return
-    
+
     proxy = Prompt.ask("请输入代理地址(可选，格式如socks5://127.0.0.1:1080)", default="")
-    
+    exit_ip = Prompt.ask("请输入出口IP(可选，适用于云主机多IP绑定场景)", default="")
+
     try:
         proxy_setting = proxy if proxy.strip() else None
-        file_path = generate_environment_file(name, proxy_setting)
+        exit_ip_setting = exit_ip if exit_ip.strip() else None
+        file_path = generate_environment_file(name, proxy_setting, exit_ip_setting)
         app.console.print(f"[green]虚拟设备创建成功: {file_path}[/green]")
+        if exit_ip_setting:
+            app.console.print(f"[cyan]已设置出口IP: {exit_ip_setting}[/cyan]")
     except Exception as ex:
         app.console.print(f"[red]创建虚拟设备失败: {str(ex)}[/red]")
-    
+
     Prompt.ask("按回车键继续", default="")
 
 
@@ -106,12 +110,14 @@ def edit_env_file(app):
             app.console.print("1. 查看环境详情")
             app.console.print("2. 修改Header配置")
             app.console.print("3. 修改代理配置")
-            app.console.print("4. 刷新Cookie")
-            app.console.print("5. 登录账号")
+            app.console.print("4. 修改出口IP配置")
+            app.console.print("5. 测试出口IP")
+            app.console.print("6. 刷新Cookie")
+            app.console.print("7. 登录账号")
             app.console.print("0. 返回")
-            
-            edit_choice = Prompt.ask("请选择", choices=["0", "1", "2", "3", "4", "5"], default="0")
-            
+
+            edit_choice = Prompt.ask("请选择", choices=["0", "1", "2", "3", "4", "5", "6", "7"], default="0")
+
             if edit_choice == "0":
                 break
             elif edit_choice == "1":
@@ -122,8 +128,12 @@ def edit_env_file(app):
             elif edit_choice == "3":
                 edit_proxy(app, env, file_name)
             elif edit_choice == "4":
-                refresh_cookie(app, env, file_name)
+                edit_exit_ip(app, env, file_name)
             elif edit_choice == "5":
+                test_exit_ip(app, env, file_name)
+            elif edit_choice == "6":
+                refresh_cookie(app, env, file_name)
+            elif edit_choice == "7":
                 login(app, env, file_name)
                 
     except Exception as ex:
@@ -170,7 +180,12 @@ def show_env_details(app, env, file_name):
     
     if "proxy" in env and env["proxy"]:
         app.console.print(f"\n[bold]代理配置:[/bold] {env['proxy']}")
-    
+
+    if "exit_ip" in env and env["exit_ip"]:
+        app.console.print(f"[bold]出口IP:[/bold] {env['exit_ip']}")
+    else:
+        app.console.print("[bold]出口IP:[/bold] 未设置")
+
     if "cookie" in env and env["cookie"]:
         cookie_count = len(env["cookie"]) if isinstance(env["cookie"], dict) else 1
         app.console.print(f"[bold]Cookie:[/bold] 已设置 ({cookie_count} 项)")
@@ -390,13 +405,12 @@ def login(app, env, file_name):
         
         if get_code.lower() == "y":
             try:
-                session = env_to_request_session(env)
-                code_result = get_login_code(session, country, phone)
+                success, message = get_login_code(env, country, phone)
                 
-                if code_result and code_result.get("isSuccess"):
+                if success:
                     app.console.print("[green]验证码已发送[/green]")
                 else:
-                    app.console.print(f"[red]获取验证码失败: {code_result.get('message', '未知错误') if code_result else '未知错误'}[/red]")
+                    app.console.print(f"[red]获取验证码失败: {message}[/red]")
                     Prompt.ask("按回车键继续", default="")
                     return
             except Exception as ex:
@@ -414,12 +428,11 @@ def login(app, env, file_name):
             app.console.print("\n[cyan]正在登录...[/cyan]")
             
             try:
-                from utils.user.login import verify_login_code
+                from utils.user.login import user_login_sms
                 
-                session = env_to_request_session(env)
-                login_result = verify_login_code(session, country, phone, verify_code)
+                session, success, message = user_login_sms(env, country, phone, verify_code)
                 
-                if login_result and login_result.get("isSuccess"):
+                if success:
                     app.console.print("[green]登录成功！[/green]")
                     
                     if session.cookies:
@@ -435,7 +448,7 @@ def login(app, env, file_name):
                             json.dump(env, f, ensure_ascii=False, indent=2)
                         app.console.print("[cyan]Cookie已保存[/cyan]")
                 else:
-                    app.console.print(f"[red]登录失败: {login_result.get('message', '未知错误') if login_result else '未知错误'}[/red]")
+                    app.console.print(f"[red]登录失败: {message}[/red]")
                     
             except Exception as ex:
                 app.console.print(f"[red]登录失败: {str(ex)}[/red]")
@@ -485,5 +498,90 @@ def delete_env_file(app):
             app.console.print(f"[red]删除失败: {str(ex)}[/red]")
     else:
         app.console.print("[yellow]已取消删除[/yellow]")
-    
+
     Prompt.ask("按回车键继续", default="")
+
+
+def edit_exit_ip(app, env, file_name):
+    from tui_utils.menus import show_header
+
+    app.console.clear()
+    show_header(app.console)
+    app.console.print(f"\n[cyan]修改出口IP配置 - {file_name}[/cyan]\n")
+
+    current_exit_ip = env.get("exit_ip", "")
+    app.console.print(f"当前出口IP: {current_exit_ip if current_exit_ip else '未设置'}\n")
+    app.console.print("[dim]说明: 出口IP用于云主机多IP绑定场景，请求将使用指定的源IP地址[/dim]\n")
+
+    new_exit_ip = Prompt.ask("请输入新的出口IP (直接回车清除)", default=current_exit_ip)
+
+    if new_exit_ip.strip():
+        # 简单验证IP格式
+        import re
+        ip_pattern = r'^(\d{1,3}\.){3}\d{1,3}$'
+        if re.match(ip_pattern, new_exit_ip.strip()):
+            env["exit_ip"] = new_exit_ip.strip()
+            app.console.print(f"\n[green]出口IP已设置为: {new_exit_ip.strip()}[/green]")
+        else:
+            app.console.print("[red]IP格式不正确，应为xxx.xxx.xxx.xxx格式[/red]")
+            Prompt.ask("按回车键继续", default="")
+            return
+    else:
+        if "exit_ip" in env:
+            del env["exit_ip"]
+        app.console.print("\n[yellow]出口IP已清除[/yellow]")
+
+    try:
+        with open(file_name, "w", encoding="utf-8") as f:
+            json.dump(env, f, ensure_ascii=False, indent=2)
+        app.console.print("[green]配置已保存[/green]")
+    except Exception as ex:
+        app.console.print(f"[red]保存失败: {str(ex)}[/red]")
+
+    Prompt.ask("按回车键继续", default="")
+
+
+def test_exit_ip(app, env, file_name):
+    from tui_utils.menus import show_header
+
+    app.console.clear()
+    show_header(app.console)
+    app.console.print(f"\n[cyan]测试出口IP - {file_name}[/cyan]\n")
+
+    exit_ip = env.get("exit_ip", "")
+    if not exit_ip:
+        app.console.print("[yellow]该环境未设置出口IP[/yellow]")
+        Prompt.ask("按回车键继续", default="")
+        return
+
+    app.console.print(f"[bold]配置的出口IP:[/bold] {exit_ip}\n")
+
+    try:
+        from utils.env2sess import env_to_request_session
+
+        app.console.print("[cyan]正在测试出口IP...[/cyan]")
+        app.console.print("[dim]正在请求 httpbin.org/ip 获取当前出口IP...[/dim]\n")
+
+        session = env_to_request_session(env)
+
+        # 测试请求，获取当前出口IP
+        response = session.get("https://httpbin.org/ip", timeout=10)
+        result = response.json()
+
+        actual_ip = result.get("origin", "未知")
+        app.console.print(f"[bold]实际出口IP:[/bold] {actual_ip}")
+
+        if exit_ip in actual_ip:
+            app.console.print("\n[green]✓ 出口IP配置正确！请求已成功使用指定的源IP地址[/green]")
+        else:
+            app.console.print("\n[yellow]⚠ 警告: 实际出口IP与配置的出口IP不一致[/yellow]")
+            app.console.print("[dim]可能原因:[/dim]")
+            app.console.print("  - 该IP未绑定到当前主机")
+            app.console.print("  - 代理设置覆盖了出口IP")
+            app.console.print("  - 网络配置问题")
+
+    except Exception as ex:
+        app.console.print(f"[red]测试失败: {str(ex)}[/red]")
+        app.console.print("[dim]可能原因: 网络连接问题或IP配置错误[/dim]")
+
+    Prompt.ask("\n按回车键继续", default="")

@@ -108,19 +108,22 @@ def select_ticket_type(app):
         table = Table(box=box.SIMPLE, show_header=True)
         table.add_column("序号", style="cyan", width=5)
         table.add_column("票种名称", style="green")
+        table.add_column("场次", style="cyan")
         table.add_column("价格", style="yellow")
         table.add_column("余票", style="magenta")
         table.add_column("实名", style="blue")
-        
+
         for idx, ticket in enumerate(ticket_list, 1):
             name = ticket.get("ticketName") or ticket.get("name", "")
+            square = ticket.get("square", "")
             price = ticket.get("ticketPrice") or ticket.get("price", 0)
             stock = ticket.get("remainderNum", 0)
             is_real_name = ticket.get("realnameAuth") or ticket.get("isRealName", False)
-            
+
             table.add_row(
                 str(idx),
                 name,
+                square if square else "-",
                 f"{price/100 if price else 0}元",
                 str(stock),
                 "是" if is_real_name else "否"

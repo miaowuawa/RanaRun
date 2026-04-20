@@ -1,0 +1,1347 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RanaRun WebUI - ALLCPP购票</title>
+    <!-- 音频文件 -->
+    <audio id="dingdong-sound" preload="auto">
+        <source src="/api/static/dingdong.mp3" type="audio/mpeg">
+    </audio>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background: #f5f5f5; color: #333; }
+        .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; text-align: center; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        .header h1 { font-size: 24px; margin-bottom: 5px; }
+        .header p { opacity: 0.9; font-size: 14px; }
+        .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
+        .nav-tabs { display: flex; background: white; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); margin-bottom: 20px; overflow: hidden; }
+        .nav-tab { flex: 1; padding: 15px 20px; text-align: center; cursor: pointer; border: none; background: white; font-size: 14px; transition: all 0.3s; border-bottom: 3px solid transparent; }
+        .nav-tab:hover { background: #f8f9fa; }
+        .nav-tab.active { border-bottom-color: #667eea; color: #667eea; font-weight: 600; }
+        .content-section { display: none; }
+        .content-section.active { display: block; }
+        .card { background: white; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); padding: 20px; margin-bottom: 20px; }
+        .card-title { font-size: 18px; font-weight: 600; margin-bottom: 15px; color: #333; border-bottom: 2px solid #f0f0f0; padding-bottom: 10px; }
+        .form-group { margin-bottom: 15px; }
+        .form-group label { display: block; margin-bottom: 5px; font-weight: 500; color: #555; }
+        .form-control { width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; transition: border-color 0.3s; }
+        .form-control:focus { outline: none; border-color: #667eea; }
+        .btn { padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; transition: all 0.3s; display: inline-flex; align-items: center; gap: 5px; }
+        .btn-primary { background: #667eea; color: white; }
+        .btn-primary:hover { background: #5568d3; }
+        .btn-success { background: #28a745; color: white; }
+        .btn-success:hover { background: #218838; }
+        .btn-danger { background: #dc3545; color: white; }
+        .btn-danger:hover { background: #c82333; }
+        .btn-warning { background: #ffc107; color: #212529; }
+        .btn-info { background: #17a2b8; color: white; }
+        .btn-secondary { background: #6c757d; color: white; }
+        .btn-sm { padding: 5px 10px; font-size: 12px; }
+        .table { width: 100%; border-collapse: collapse; }
+        .table th, .table td { padding: 12px; text-align: left; border-bottom: 1px solid #eee; }
+        .table th { background: #f8f9fa; font-weight: 600; color: #555; }
+        .table tr:hover { background: #f8f9fa; }
+        .badge { padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: 500; }
+        .badge-success { background: #d4edda; color: #155724; }
+        .badge-warning { background: #fff3cd; color: #856404; }
+        .badge-danger { background: #f8d7da; color: #721c24; }
+        .badge-info { background: #d1ecf1; color: #0c5460; }
+        .alert { padding: 12px 15px; border-radius: 4px; margin-bottom: 15px; }
+        .alert-success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .alert-error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+        .alert-warning { background: #fff3cd; color: #856404; border: 1px solid #ffeeba; }
+        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; justify-content: center; align-items: center; }
+        .modal.active { display: flex; }
+        .modal-content { background: white; border-radius: 8px; width: 90%; max-width: 600px; max-height: 80vh; overflow-y: auto; box-shadow: 0 4px 20px rgba(0,0,0,0.3); }
+        .modal-header { padding: 20px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; }
+        .modal-title { font-size: 18px; font-weight: 600; }
+        .modal-close { background: none; border: none; font-size: 24px; cursor: pointer; color: #999; }
+        .modal-body { padding: 20px; }
+        .modal-footer { padding: 15px 20px; border-top: 1px solid #eee; display: flex; justify-content: flex-end; gap: 10px; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
+        .log-container { background: #1e1e1e; color: #d4d4d4; padding: 15px; border-radius: 4px; font-family: 'Consolas', 'Monaco', monospace; font-size: 13px; max-height: 400px; overflow-y: auto; white-space: pre-wrap; word-wrap: break-word; }
+        .status-indicator { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 5px; }
+        .status-running { background: #28a745; animation: pulse 2s infinite; }
+        .status-stopped { background: #dc3545; }
+        .status-starting { background: #ffc107; animation: pulse 1s infinite; }
+        .status-success { background: #28a745; box-shadow: 0 0 10px #28a745; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+        .search-box { display: flex; gap: 10px; margin-bottom: 15px; }
+        .search-box input, .search-box select { flex: 1; }
+        .empty-state { text-align: center; padding: 40px; color: #999; }
+        .empty-state-icon { font-size: 48px; margin-bottom: 15px; }
+        .checkbox-group { display: flex; align-items: center; gap: 8px; }
+        .checkbox-group input[type="checkbox"] { width: 18px; height: 18px; }
+        .radio-group { display: flex; gap: 15px; margin-bottom: 10px; }
+        .radio-item { display: flex; align-items: center; gap: 5px; }
+        .info-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #f0f0f0; }
+        .info-row:last-child { border-bottom: none; }
+        .info-label { color: #666; }
+        .info-value { font-weight: 500; }
+        .actions { display: flex; gap: 5px; flex-wrap: wrap; }
+        .ticket-item { border: 1px solid #eee; border-radius: 4px; padding: 10px; margin-bottom: 10px; cursor: pointer; transition: all 0.3s; }
+        .ticket-item:hover { background: #f8f9fa; border-color: #667eea; }
+        .ticket-item.selected { background: #e8f0fe; border-color: #667eea; }
+        .purchaser-item { display: flex; align-items: center; gap: 10px; padding: 10px; border: 2px solid #eee; border-radius: 6px; margin-bottom: 8px; cursor: pointer; transition: all 0.2s; background: white; }
+        .purchaser-item:hover { border-color: #667eea; background: #f8f9fa; }
+        .purchaser-item.selected { border-color: #667eea; background: #e8f0fe; }
+        .purchaser-item input[type="checkbox"] { width: 18px; height: 18px; cursor: pointer; flex-shrink: 0; }
+        .purchaser-info { flex: 1; }
+        .purchaser-name { font-weight: 600; color: #333; }
+        .purchaser-idcard { font-size: 12px; color: #666; margin-top: 2px; }
+        .purchaser-badge { padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 500; }
+        .badge-realname { background: #d4edda; color: #155724; }
+        .badge-norealname { background: #fff3cd; color: #856404; }
+        .purchaser-actions { display: flex; gap: 5px; margin-top: 10px; padding-top: 10px; border-top: 1px solid #eee; }
+        .selected-purchasers { background: #e8f0fe; padding: 10px; border-radius: 4px; margin-top: 10px; font-size: 14px; }
+        .selected-info { background: #f8f9fa; padding: 10px; border-radius: 4px; margin-top: 10px; }
+        @media (max-width: 768px) { .nav-tabs { flex-wrap: wrap; } .nav-tab { flex: 1 1 50%; } .grid { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>RanaRun WebUI</h1>
+        <p>ALLCPP购票助手 - 严禁商业化使用</p>
+    </div>
+
+    <div class="container">
+        <div class="nav-tabs">
+            <button class="nav-tab active" data-section="env">环境管理</button>
+            <button class="nav-tab" data-section="ticket">票务查询</button>
+            <button class="nav-tab" data-section="order">下单测试</button>
+            <button class="nav-tab" data-section="snipe">抢票模式</button>
+            <button class="nav-tab" data-section="process">进程管理</button>
+        </div>
+
+        <!-- 环境管理 -->
+        <div class="content-section active" id="env-section">
+            <div class="card">
+                <div class="card-title">环境列表</div>
+                <div class="actions" style="margin-bottom: 15px;">
+                    <button class="btn btn-primary" onclick="showCreateEnvModal()">+ 创建环境</button>
+                    <button class="btn btn-secondary" onclick="loadEnvList()">刷新</button>
+                </div>
+                <div id="env-list">
+                    <div class="empty-state">
+                        <div class="empty-state-icon">📁</div>
+                        <p>暂无环境文件</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 票务查询 -->
+        <div class="content-section" id="ticket-section">
+            <div class="card">
+                <div class="card-title">搜索活动</div>
+                <div class="form-group">
+                    <label>选择环境（用于查询票种详情）</label>
+                    <select class="form-control" id="ticket-env-select">
+                        <option value="">请选择环境</option>
+                    </select>
+                </div>
+                <div class="search-box">
+                    <select class="form-control" id="search-city" style="max-width: 150px;">
+                        <option value="">全部城市</option>
+                    </select>
+                    <input type="text" class="form-control" id="search-keyword" placeholder="输入活动名称关键词">
+                    <button class="btn btn-primary" onclick="searchEvents()">搜索</button>
+                </div>
+                <div id="event-list"></div>
+            </div>
+
+            <div class="card" id="ticket-info-card" style="display: none;">
+                <div class="card-title">票种信息</div>
+                <div id="ticket-list"></div>
+            </div>
+        </div>
+
+        <!-- 下单测试 -->
+        <div class="content-section" id="order-section">
+            <div class="grid">
+                <div class="card">
+                    <div class="card-title">测试配置</div>
+                    <div class="form-group">
+                        <label>选择环境</label>
+                        <select class="form-control" id="order-env-select">
+                            <option value="">请选择环境</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>活动ID</label>
+                        <div style="display: flex; gap: 5px;">
+                            <input type="text" class="form-control" id="order-event-id" placeholder="输入活动ID">
+                            <button class="btn btn-secondary" onclick="loadOrderTickets()">查询票种</button>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>选择票种</label>
+                        <div id="order-ticket-list" style="max-height: 200px; overflow-y: auto;">
+                            <p style="color: #999;">请先输入活动ID并查询</p>
+                        </div>
+                        <input type="hidden" id="order-ticket-id">
+                    </div>
+                    <div class="form-group">
+                        <label>选择购买人</label>
+                        <div style="display: flex; gap: 5px; margin-bottom: 5px;">
+                            <button class="btn btn-sm btn-info" onclick="loadOrderPurchasers()">加载购买人</button>
+                        </div>
+                        <div id="order-purchaser-list" style="max-height: 150px; overflow-y: auto;">
+                            <p style="color: #999;">点击加载购买人</p>
+                        </div>
+                        <input type="hidden" id="order-purchaser-ids">
+                    </div>
+                    <div class="form-group">
+                        <label>下单模式</label>
+                        <div class="radio-group">
+                            <label class="radio-item">
+                                <input type="radio" name="order-mode" value="separate" checked>
+                                <span>分离模式（每人单独下单）</span>
+                            </label>
+                            <label class="radio-item">
+                                <input type="radio" name="order-mode" value="combined">
+                                <span>合并模式（一起下单）</span>
+                            </label>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>购买数量</label>
+                        <input type="number" class="form-control" id="order-count" value="1" min="1">
+                    </div>
+                    <div class="form-group checkbox-group">
+                        <input type="checkbox" id="order-debug-mode">
+                        <label for="order-debug-mode" style="margin-bottom: 0;">调试模式</label>
+                    </div>
+                    <button class="btn btn-primary" onclick="executeOrderTest()">执行测试</button>
+                </div>
+
+                <div class="card">
+                    <div class="card-title">测试结果</div>
+                    <div id="order-result"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 抢票模式 -->
+        <div class="content-section" id="snipe-section">
+            <div class="grid">
+                <div class="card">
+                    <div class="card-title">预售模式配置</div>
+                    <div class="form-group">
+                        <label>进程名称</label>
+                        <input type="text" class="form-control" id="presale-name" placeholder="预售抢票-1">
+                    </div>
+                    <div class="form-group">
+                        <label>选择环境</label>
+                        <select class="form-control" id="presale-env-select">
+                            <option value="">请选择环境</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>活动ID</label>
+                        <div style="display: flex; gap: 5px;">
+                            <input type="text" class="form-control" id="presale-event-id" placeholder="输入活动ID">
+                            <button class="btn btn-secondary" onclick="loadSnipeTickets('presale')">查询票种</button>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>选择票种</label>
+                        <div id="presale-ticket-list" style="max-height: 150px; overflow-y: auto;">
+                            <p style="color: #999;">请先输入活动ID并查询</p>
+                        </div>
+                        <input type="hidden" id="presale-ticket-id">
+                    </div>
+                    <div class="form-group">
+                        <label>选择购买人</label>
+                        <div style="display: flex; gap: 5px; margin-bottom: 5px;">
+                            <button class="btn btn-sm btn-info" onclick="loadSnipePurchasers('presale')">加载购买人</button>
+                        </div>
+                        <div id="presale-purchaser-list" style="max-height: 120px; overflow-y: auto;">
+                            <p style="color: #999;">点击加载购买人</p>
+                        </div>
+                        <input type="hidden" id="presale-purchaser-ids">
+                    </div>
+                    <div class="form-group">
+                        <label>下单模式</label>
+                        <div class="radio-group">
+                            <label class="radio-item">
+                                <input type="radio" name="presale-order-mode" value="merge" checked>
+                                <span>合并模式（一起下单）</span>
+                            </label>
+                            <label class="radio-item">
+                                <input type="radio" name="presale-order-mode" value="split">
+                                <span>分离模式（每人单独下单）</span>
+                            </label>
+                        </div>
+                        <small style="color: #666;">合并模式：一次性下所有票；分离模式：每张票单独下单</small>
+                    </div>
+                    <div class="form-group">
+                        <label>购买数量</label>
+                        <input type="number" class="form-control" id="presale-count" value="1" min="1" onchange="validatePurchaserCount('presale')">
+                    </div>
+                    <div class="form-group">
+                        <label>抢票延迟 (毫秒)</label>
+                        <input type="number" class="form-control" id="presale-delay" value="150" min="0">
+                        <small style="color: #666;">正常模式延迟，建议值：100-300ms</small>
+                    </div>
+                    <div class="form-group">
+                        <label>爆发延迟 (毫秒)</label>
+                        <input type="number" class="form-control" id="presale-burst-delay" value="70" min="10">
+                        <small style="color: #666;">开抢后前2秒使用的延迟，建议值：60-80ms</small>
+                    </div>
+                    <div class="form-group">
+                        <label>时间偏移 (毫秒)</label>
+                        <div style="display: flex; gap: 5px;">
+                            <input type="number" class="form-control" id="presale-time-offset" value="0" step="0.01">
+                            <button class="btn btn-secondary" onclick="calculateTimeOffset()">自动计算</button>
+                        </div>
+                        <small style="color: #666;">本地时间与服务器的时间差，正数表示本地时间快</small>
+                        <div id="time-offset-result" style="margin-top: 5px; font-size: 12px;"></div>
+                    </div>
+                    <div class="form-group checkbox-group">
+                        <input type="checkbox" id="presale-debug-mode">
+                        <label for="presale-debug-mode" style="margin-bottom: 0;">调试模式</label>
+                    </div>
+                    <button class="btn btn-success" onclick="createPresaleProcess()">创建预售进程</button>
+                </div>
+
+                <div class="card">
+                    <div class="card-title">回流模式配置</div>
+                    <div class="form-group">
+                        <label>进程名称</label>
+                        <input type="text" class="form-control" id="resale-name" placeholder="回流抢票-1">
+                    </div>
+                    <div class="form-group">
+                        <label>选择环境</label>
+                        <select class="form-control" id="resale-env-select">
+                            <option value="">请选择环境</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>活动ID</label>
+                        <div style="display: flex; gap: 5px;">
+                            <input type="text" class="form-control" id="resale-event-id" placeholder="输入活动ID">
+                            <button class="btn btn-secondary" onclick="loadSnipeTickets('resale')">查询票种</button>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>选择票种</label>
+                        <div id="resale-ticket-list" style="max-height: 150px; overflow-y: auto;">
+                            <p style="color: #999;">请先输入活动ID并查询</p>
+                        </div>
+                        <input type="hidden" id="resale-ticket-id">
+                    </div>
+                    <div class="form-group">
+                        <label>选择购买人</label>
+                        <div style="display: flex; gap: 5px; margin-bottom: 5px;">
+                            <button class="btn btn-sm btn-info" onclick="loadSnipePurchasers('resale')">加载购买人</button>
+                        </div>
+                        <div id="resale-purchaser-list" style="max-height: 120px; overflow-y: auto;">
+                            <p style="color: #999;">点击加载购买人</p>
+                        </div>
+                        <input type="hidden" id="resale-purchaser-ids">
+                    </div>
+                    <div class="form-group">
+                        <label>刷新延迟 (秒)</label>
+                        <input type="number" class="form-control" id="resale-refresh-delay" value="1" min="0.1" step="0.1">
+                    </div>
+                    <div class="form-group checkbox-group">
+                        <input type="checkbox" id="resale-debug-mode">
+                        <label for="resale-debug-mode" style="margin-bottom: 0;">调试模式</label>
+                    </div>
+                    <button class="btn btn-warning" onclick="createResaleProcess()">创建回流进程</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 进程管理 -->
+        <div class="content-section" id="process-section">
+            <div class="card">
+                <div class="card-title">抢票进程列表</div>
+                <div class="actions" style="margin-bottom: 15px;">
+                    <button class="btn btn-secondary" onclick="loadProcessList()">刷新</button>
+                    <button class="btn btn-danger" onclick="cleanupStoppedProcesses()">清理已停止</button>
+                </div>
+                <div id="process-list">
+                    <div class="empty-state">
+                        <div class="empty-state-icon">⚙️</div>
+                        <p>暂无抢票进程</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 创建环境模态框 -->
+    <div class="modal" id="create-env-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div class="modal-title">创建新环境</div>
+                <button class="modal-close" onclick="closeModal('create-env-modal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>环境名称</label>
+                    <input type="text" class="form-control" id="new-env-name" placeholder="例如: myenv">
+                </div>
+                <div class="form-group">
+                    <label>代理地址 (可选)</label>
+                    <input type="text" class="form-control" id="new-env-proxy" placeholder="socks5://127.0.0.1:1080">
+                </div>
+                <div class="form-group">
+                    <label>出口IP (可选)</label>
+                    <input type="text" class="form-control" id="new-env-exit-ip" placeholder="例如: 192.168.1.100">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal('create-env-modal')">取消</button>
+                <button class="btn btn-primary" onclick="createEnvironment()">创建</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 登录模态框 -->
+    <div class="modal" id="login-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div class="modal-title">登录账号</div>
+                <button class="modal-close" onclick="closeModal('login-modal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="login-env-file">
+                <div class="form-group">
+                    <label>区号</label>
+                    <input type="text" class="form-control" id="login-country" value="86" placeholder="86">
+                </div>
+                <div class="form-group">
+                    <label>手机号</label>
+                    <input type="text" class="form-control" id="login-phone" placeholder="请输入手机号">
+                </div>
+                <div class="form-group">
+                    <button class="btn btn-secondary" onclick="sendSmsCode()">发送验证码</button>
+                </div>
+                <div class="form-group">
+                    <label>验证码</label>
+                    <input type="text" class="form-control" id="login-code" placeholder="请输入验证码">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal('login-modal')">取消</button>
+                <button class="btn btn-primary" onclick="doLogin()">登录</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 编辑Header模态框 -->
+    <div class="modal" id="edit-header-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div class="modal-title">编辑Header</div>
+                <button class="modal-close" onclick="closeModal('edit-header-modal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="edit-header-env-file">
+                <div class="form-group">
+                    <label>User-Agent</label>
+                    <input type="text" class="form-control" id="edit-ua" placeholder="User-Agent">
+                </div>
+                <div class="form-group">
+                    <label>设备类型</label>
+                    <input type="text" class="form-control" id="edit-equipment" placeholder="例如: 1">
+                </div>
+                <div class="form-group">
+                    <label>App版本</label>
+                    <input type="text" class="form-control" id="edit-app-version" placeholder="例如: 5.0.0">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal('edit-header-modal')">取消</button>
+                <button class="btn btn-primary" onclick="saveHeader()">保存</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 编辑网络配置模态框 -->
+    <div class="modal" id="edit-network-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div class="modal-title">编辑网络配置</div>
+                <button class="modal-close" onclick="closeModal('edit-network-modal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="edit-network-env-file">
+                <div class="form-group">
+                    <label>代理地址 (可选)</label>
+                    <input type="text" class="form-control" id="edit-proxy" placeholder="socks5://127.0.0.1:1080">
+                    <small style="color: #666;">格式: socks5://host:port 或 http://host:port</small>
+                </div>
+                <div class="form-group">
+                    <label>出口IP (可选)</label>
+                    <input type="text" class="form-control" id="edit-exit-ip" placeholder="例如: 192.168.1.100">
+                    <small style="color: #666;">绑定特定IP作为出口，适用于多IP服务器</small>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal('edit-network-modal')">取消</button>
+                <button class="btn btn-primary" onclick="saveNetworkConfig()">保存</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 环境详情模态框 -->
+    <div class="modal" id="env-detail-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div class="modal-title">环境详情</div>
+                <button class="modal-close" onclick="closeModal('env-detail-modal')">&times;</button>
+            </div>
+            <div class="modal-body" id="env-detail-content"></div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal('env-detail-modal')">关闭</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 进程日志模态框 -->
+    <div class="modal" id="process-log-modal">
+        <div class="modal-content" style="max-width: 900px;">
+            <div class="modal-header">
+                <div class="modal-title">进程日志</div>
+                <button class="modal-close" onclick="closeModal('process-log-modal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="log-container" id="process-log-content"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal('process-log-modal')">关闭</button>
+                <button class="btn btn-primary" onclick="refreshProcessLog()">刷新</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 全局状态
+        let currentProcessId = null;
+        let envList = [];
+        let cityList = [];
+
+        // 初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            initTabs();
+            loadEnvList();
+            loadProcessList();
+            loadCities();
+
+            // 爆发模式切换
+            document.getElementById('presale-burst-mode').addEventListener('change', function() {
+                document.getElementById('presale-delay-group').style.display = this.checked ? 'block' : 'none';
+            });
+
+            // 启动进程状态轮询，检查抢票成功
+            setInterval(checkProcessSuccess, 5000);
+        });
+
+        // 播放提示音
+        function playDingDong() {
+            const audio = document.getElementById('dingdong-sound');
+            if (audio) {
+                console.log('正在播放提示音...');
+                audio.currentTime = 0;
+                audio.play().then(() => {
+                    console.log('提示音播放成功');
+                }).catch(e => {
+                    console.log('播放音效失败:', e);
+                    // 尝试重新加载音频
+                    audio.load();
+                    audio.play().catch(e2 => console.log('重试播放失败:', e2));
+                });
+            } else {
+                console.log('未找到音频元素');
+            }
+        }
+
+        // 显示右上角通知
+        function showNotification(title, message, type = 'success') {
+            // 创建通知元素
+            const notification = document.createElement('div');
+            notification.style.cssText = `
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                background: ${type === 'success' ? '#28a745' : '#dc3545'};
+                color: white;
+                padding: 15px 20px;
+                border-radius: 8px;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+                z-index: 9999;
+                max-width: 300px;
+                animation: slideIn 0.3s ease;
+            `;
+            notification.innerHTML = `
+                <div style="font-weight: bold; margin-bottom: 5px;">${title}</div>
+                <div style="font-size: 14px;">${message}</div>
+            `;
+
+            // 添加动画样式
+            if (!document.getElementById('notification-style')) {
+                const style = document.createElement('style');
+                style.id = 'notification-style';
+                style.textContent = `
+                    @keyframes slideIn {
+                        from { transform: translateX(100%); opacity: 0; }
+                        to { transform: translateX(0); opacity: 1; }
+                    }
+                    @keyframes slideOut {
+                        from { transform: translateX(0); opacity: 1; }
+                        to { transform: translateX(100%); opacity: 0; }
+                    }
+                `;
+                document.head.appendChild(style);
+            }
+
+            document.body.appendChild(notification);
+
+            // 播放音效
+            playDingDong();
+
+            // 5秒后自动移除
+            setTimeout(() => {
+                notification.style.animation = 'slideOut 0.3s ease';
+                setTimeout(() => notification.remove(), 300);
+            }, 5000);
+        }
+
+        // 检查是否有抢票成功的进程
+        let notifiedProcesses = new Set();
+        async function checkProcessSuccess() {
+            try {
+                const result = await apiRequest('/api/process/list', { method: 'GET' });
+                console.log('检查进程状态:', result);
+                if (result.success) {
+                    result.data.forEach(process => {
+                        console.log(`进程 ${process.id} 状态: ${process.status}`);
+                        // 检查进程是否成功且未通知过
+                        if (process.status === 'success' && !notifiedProcesses.has(process.id)) {
+                            console.log(`检测到成功进程: ${process.id}`);
+                            notifiedProcesses.add(process.id);
+                            showNotification(
+                                '🎉 抢票成功！',
+                                `进程: ${process.name}<br>模式: ${process.mode === 'presale' ? '预售' : '回流'}`,
+                                'success'
+                            );
+                        }
+                    });
+                }
+            } catch (e) {
+                console.log('检查进程状态出错:', e);
+            }
+        }
+
+        // 标签页切换
+        function initTabs() {
+            const tabs = document.querySelectorAll('.nav-tab');
+            tabs.forEach(tab => {
+                tab.addEventListener('click', function() {
+                    const section = this.dataset.section;
+                    tabs.forEach(t => t.classList.remove('active'));
+                    this.classList.add('active');
+                    document.querySelectorAll('.content-section').forEach(s => s.classList.remove('active'));
+                    document.getElementById(section + '-section').classList.add('active');
+                    if (section === 'env') loadEnvList();
+                    else if (section === 'process') loadProcessList();
+                    else if (section === 'ticket' || section === 'order' || section === 'snipe') updateEnvSelects();
+                });
+            });
+        }
+
+        function showModal(modalId) { document.getElementById(modalId).classList.add('active'); }
+        function closeModal(modalId) { document.getElementById(modalId).classList.remove('active'); }
+
+        async function apiRequest(url, options = {}) {
+            try {
+                const response = await fetch(url, { headers: { 'Content-Type': 'application/json' }, ...options });
+                return await response.json();
+            } catch (error) { return { success: false, error: error.message }; }
+        }
+
+        // 加载城市列表
+        async function loadCities() {
+            const result = await apiRequest('/api/ticket/cities');
+            if (result.success) {
+                cityList = result.data;
+                const select = document.getElementById('search-city');
+                select.innerHTML = '<option value="">全部城市</option>';
+                cityList.forEach(city => {
+                    const option = document.createElement('option');
+                    option.value = city.code;
+                    option.textContent = city.name;
+                    select.appendChild(option);
+                });
+            }
+        }
+
+        // 加载环境列表
+        async function loadEnvList() {
+            const result = await apiRequest('/api/env/list');
+            if (result.success) {
+                envList = result.data;
+                renderEnvList(result.data);
+            } else showAlert('env-list', result.error, 'error');
+        }
+
+        function renderEnvList(envs) {
+            const container = document.getElementById('env-list');
+            if (envs.length === 0) {
+                container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">📁</div><p>暂无环境文件</p></div>';
+                return;
+            }
+            let html = '<table class="table"><thead><tr><th>名称</th><th>代理</th><th>出口IP</th><th>登录状态</th><th>操作</th></tr></thead><tbody>';
+            envs.forEach(env => {
+                const loginBadge = env.has_login ? '<span class="badge badge-success">已登录</span>' : '<span class="badge badge-warning">未登录</span>';
+                html += `<tr><td>${env.name}</td><td>${env.proxy || '-'}</td><td>${env.exit_ip || '-'}</td><td>${loginBadge}</td><td><div class="actions"><button class="btn btn-sm btn-primary" onclick="showEnvDetail('${env.file}')">详情</button><button class="btn btn-sm btn-success" onclick="showLoginModal('${env.file}')">登录</button><button class="btn btn-sm btn-info" onclick="showEditHeaderModal('${env.file}')">编辑Header</button><button class="btn btn-sm btn-info" onclick="showEditNetworkModal('${env.file}')">编辑网络</button><button class="btn btn-sm btn-secondary" onclick="refreshEnvCookie('${env.file}')">刷新Cookie</button>${env.exit_ip ? `<button class="btn btn-sm btn-info" onclick="testExitIp('${env.file}')">测试IP</button>` : ''}<button class="btn btn-sm btn-danger" onclick="deleteEnv('${env.file}')">删除</button></div></td></tr>`;
+            });
+            html += '</tbody></table>';
+            container.innerHTML = html;
+        }
+
+        function showCreateEnvModal() {
+            document.getElementById('new-env-name').value = '';
+            document.getElementById('new-env-proxy').value = '';
+            document.getElementById('new-env-exit-ip').value = '';
+            showModal('create-env-modal');
+        }
+
+        async function createEnvironment() {
+            const name = document.getElementById('new-env-name').value.trim();
+            const proxy = document.getElementById('new-env-proxy').value.trim();
+            const exitIp = document.getElementById('new-env-exit-ip').value.trim();
+            if (!name) { alert('请输入环境名称'); return; }
+            const result = await apiRequest('/api/env/create', { method: 'POST', body: JSON.stringify({ name, proxy, exit_ip: exitIp }) });
+            if (result.success) { closeModal('create-env-modal'); loadEnvList(); showAlert('env-list', '环境创建成功', 'success'); }
+            else alert(result.error);
+        }
+
+        // 登录功能
+        function showLoginModal(file) {
+            document.getElementById('login-env-file').value = file;
+            document.getElementById('login-country').value = '86';
+            document.getElementById('login-phone').value = '';
+            document.getElementById('login-code').value = '';
+            showModal('login-modal');
+        }
+
+        async function sendSmsCode() {
+            const file = document.getElementById('login-env-file').value;
+            const country = document.getElementById('login-country').value;
+            const phone = document.getElementById('login-phone').value.trim();
+            if (!phone) { alert('请输入手机号'); return; }
+            const result = await apiRequest('/api/env/send_sms', { method: 'POST', body: JSON.stringify({ file, country, phone }) });
+            if (result.success) alert('验证码已发送');
+            else alert(result.error);
+        }
+
+        async function doLogin() {
+            const file = document.getElementById('login-env-file').value;
+            const country = document.getElementById('login-country').value;
+            const phone = document.getElementById('login-phone').value.trim();
+            const code = document.getElementById('login-code').value.trim();
+            if (!phone || !code) { alert('请输入手机号和验证码'); return; }
+            const result = await apiRequest('/api/env/login', { method: 'POST', body: JSON.stringify({ file, country, phone, code }) });
+            if (result.success) { closeModal('login-modal'); loadEnvList(); alert('登录成功'); }
+            else alert(result.error);
+        }
+
+        // 编辑Header
+        function showEditHeaderModal(file) {
+            document.getElementById('edit-header-env-file').value = file;
+            showModal('edit-header-modal');
+        }
+
+        async function saveHeader() {
+            const file = document.getElementById('edit-header-env-file').value;
+            const header = {};
+            const ua = document.getElementById('edit-ua').value.trim();
+            const equipment = document.getElementById('edit-equipment').value.trim();
+            const appVersion = document.getElementById('edit-app-version').value.trim();
+            if (ua) header['User-Agent'] = ua;
+            if (equipment) header['equipmentType'] = equipment;
+            if (appVersion) header['appVersion'] = appVersion;
+            const result = await apiRequest('/api/env/update_header', { method: 'POST', body: JSON.stringify({ file, header }) });
+            if (result.success) { closeModal('edit-header-modal'); alert('Header已更新'); }
+            else alert(result.error);
+        }
+
+        // 编辑网络配置
+        async function showEditNetworkModal(file) {
+            document.getElementById('edit-network-env-file').value = file;
+
+            // 获取当前环境详情
+            const result = await apiRequest(`/api/env/detail?file=${encodeURIComponent(file)}`);
+            if (result.success) {
+                const env = result.data;
+                document.getElementById('edit-proxy').value = env.proxy || '';
+                document.getElementById('edit-exit-ip').value = env.exit_ip || '';
+            }
+
+            showModal('edit-network-modal');
+        }
+
+        async function saveNetworkConfig() {
+            const file = document.getElementById('edit-network-env-file').value;
+            const proxy = document.getElementById('edit-proxy').value.trim();
+            const exitIp = document.getElementById('edit-exit-ip').value.trim();
+
+            const config = {};
+            if (proxy) config.proxy = proxy;
+            if (exitIp) config.exit_ip = exitIp;
+
+            const result = await apiRequest('/api/env/update', { method: 'POST', body: JSON.stringify({ file, config }) });
+            if (result.success) {
+                closeModal('edit-network-modal');
+                loadEnvList();
+                alert('网络配置已更新');
+            } else alert(result.error);
+        }
+
+        async function showEnvDetail(file) {
+            const result = await apiRequest(`/api/env/detail?file=${encodeURIComponent(file)}`);
+            if (result.success) {
+                const env = result.data;
+                let html = `<div class="info-row"><span class="info-label">文件</span><span class="info-value">${file}</span></div>`;
+                html += `<div class="info-row"><span class="info-label">代理</span><span class="info-value">${env.proxy || '未设置'}</span></div>`;
+                html += `<div class="info-row"><span class="info-label">出口IP</span><span class="info-value">${env.exit_ip || '未设置'}</span></div>`;
+                html += `<div class="info-row"><span class="info-label">设备类型</span><span class="info-value">${env.header?.equipmentType || '未知'}</span></div>`;
+                html += `<div class="info-row"><span class="info-label">App版本</span><span class="info-value">${env.header?.appVersion || '未知'}</span></div>`;
+                html += `<div class="info-row"><span class="info-label">Cookie数量</span><span class="info-value">${env.cookie ? Object.keys(env.cookie).length : 0}</span></div>`;
+                document.getElementById('env-detail-content').innerHTML = html;
+                showModal('env-detail-modal');
+            } else alert(result.error);
+        }
+
+        async function refreshEnvCookie(file) {
+            if (!confirm('确定要刷新Cookie吗？')) return;
+            const result = await apiRequest('/api/env/refresh_cookie', { method: 'POST', body: JSON.stringify({ file }) });
+            if (result.success) {
+                loadEnvList();
+                alert(`Cookie刷新成功！\n共 ${result.data.cookie_count} 项Cookie`);
+            } else {
+                alert('Cookie刷新失败: ' + (result.error || '未知错误'));
+            }
+        }
+
+        async function testExitIp(file) {
+            const result = await apiRequest('/api/env/test_exit_ip', { method: 'POST', body: JSON.stringify({ file }) });
+            if (result.success) {
+                const data = result.data;
+                const status = data.test_passed ? '✅ 测试通过' : '❌ 测试失败';
+                alert(`${status}\n\n配置IP: ${data.configured_ip}\n实际IP: ${data.actual_ip}`);
+            } else alert(result.error);
+        }
+
+        async function deleteEnv(file) {
+            if (!confirm('确定要删除这个环境吗？')) return;
+            const result = await apiRequest('/api/env/delete', { method: 'POST', body: JSON.stringify({ file }) });
+            if (result.success) { loadEnvList(); showAlert('env-list', '环境已删除', 'success'); }
+            else alert(result.error);
+        }
+
+        function updateEnvSelects() {
+            const selects = ['ticket-env-select', 'order-env-select', 'presale-env-select', 'resale-env-select'];
+            selects.forEach(id => {
+                const select = document.getElementById(id);
+                if (!select) return;
+                const currentValue = select.value;
+                select.innerHTML = '<option value="">请选择环境</option>';
+                envList.forEach(env => {
+                    const option = document.createElement('option');
+                    option.value = env.file;
+                    option.textContent = env.name + (env.has_login ? ' (已登录)' : '');
+                    select.appendChild(option);
+                });
+                select.value = currentValue;
+            });
+        }
+
+        // 搜索活动
+        async function searchEvents() {
+            const keyword = document.getElementById('search-keyword').value.trim();
+            const city = document.getElementById('search-city').value;
+            const envFile = document.getElementById('ticket-env-select').value;
+            if (!keyword) { alert('请输入搜索关键词'); return; }
+            const container = document.getElementById('event-list');
+            container.innerHTML = '<p>搜索中...</p>';
+            let url = `/api/ticket/search?keyword=${encodeURIComponent(keyword)}&city=${encodeURIComponent(city)}`;
+            if (envFile) url += `&env_file=${encodeURIComponent(envFile)}`;
+            const result = await apiRequest(url);
+            if (result.success) renderEventList(result.data);
+            else container.innerHTML = `<div class="alert alert-error">${result.error}</div>`;
+        }
+
+        function renderEventList(events) {
+            const container = document.getElementById('event-list');
+            if (!events || events.length === 0) {
+                container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">🔍</div><p>未找到活动</p></div>';
+                return;
+            }
+            let html = '<table class="table"><thead><tr><th>ID</th><th>活动名称</th><th>地点</th><th>时间</th><th>操作</th></tr></thead><tbody>';
+            events.forEach(event => {
+                html += `<tr><td>${event.id}</td><td>${event.eventName || event.name || '未知'}</td><td>${event.address || '-'}</td><td>${event.eventTime || '-'}</td><td><button class="btn btn-sm btn-primary" onclick="loadTicketInfo(${event.id})">查看票种</button></td></tr>`;
+            });
+            html += '</tbody></table>';
+            container.innerHTML = html;
+        }
+
+        async function loadTicketInfo(eventId) {
+            const envFile = document.getElementById('ticket-env-select').value;
+            if (!envFile) { alert('请先选择环境'); return; }
+            const card = document.getElementById('ticket-info-card');
+            const container = document.getElementById('ticket-list');
+            card.style.display = 'block';
+            container.innerHTML = '<p>加载中...</p>';
+            const result = await apiRequest(`/api/ticket/event_detail?event_id=${eventId}&env_file=${encodeURIComponent(envFile)}`);
+            if (result.success) {
+                const tickets = result.data.tickets;
+                if (!tickets || tickets.length === 0) {
+                    container.innerHTML = '<p>该活动暂无票种信息</p>';
+                    return;
+                }
+                let html = '<table class="table"><thead><tr><th>ID</th><th>名称</th><th>场次</th><th>价格</th><th>余票</th><th>限购</th><th>实名</th></tr></thead><tbody>';
+                tickets.forEach(t => {
+                    const price = (t.price / 100).toFixed(2);
+                    const realName = t.is_real_name ? '<span class="badge badge-info">是</span>' : '<span class="badge badge-secondary">否</span>';
+                    html += `<tr><td>${t.id}</td><td>${t.name}</td><td>${t.square || '-'}</td><td>${price}元</td><td>${t.remainder}</td><td>${t.purchase_limit}</td><td>${realName}</td></tr>`;
+                });
+                html += '</tbody></table>';
+                container.innerHTML = html;
+            } else container.innerHTML = `<div class="alert alert-error">${result.error}</div>`;
+        }
+
+        // 下单测试 - 加载票种
+        async function loadOrderTickets() {
+            const envFile = document.getElementById('order-env-select').value;
+            const eventId = document.getElementById('order-event-id').value.trim();
+            if (!envFile) { alert('请先选择环境'); return; }
+            if (!eventId) { alert('请输入活动ID'); return; }
+            const container = document.getElementById('order-ticket-list');
+            container.innerHTML = '<p>加载中...</p>';
+            const result = await apiRequest(`/api/process/event_tickets?event_id=${eventId}&env_file=${encodeURIComponent(envFile)}`);
+            if (result.success) {
+                const tickets = result.data.tickets;
+                if (!tickets || tickets.length === 0) { container.innerHTML = '<p>该活动暂无票种</p>'; return; }
+                let html = '';
+                tickets.forEach(t => {
+                    const price = (t.price / 100).toFixed(2);
+                    html += `<div class="ticket-item" onclick="selectOrderTicket(${t.id}, '${t.name}', '${t.square || ''}')" data-ticket-id="${t.id}"><strong>${t.name}</strong> ${t.square ? `[${t.square}]` : ''} - ${price}元 (余票: ${t.remainder})</div>`;
+                });
+                container.innerHTML = html;
+            } else container.innerHTML = `<div class="alert alert-error">${result.error}</div>`;
+        }
+
+        function selectOrderTicket(id, name, square) {
+            document.getElementById('order-ticket-id').value = id;
+            document.querySelectorAll('#order-ticket-list .ticket-item').forEach(el => el.classList.remove('selected'));
+            document.querySelector(`#order-ticket-list .ticket-item[data-ticket-id="${id}"]`).classList.add('selected');
+        }
+
+        // 下单测试 - 加载购买人
+        async function loadOrderPurchasers() {
+            const envFile = document.getElementById('order-env-select').value;
+            if (!envFile) { alert('请先选择环境'); return; }
+            const container = document.getElementById('order-purchaser-list');
+            container.innerHTML = '<p>加载中...</p>';
+            const result = await apiRequest(`/api/order/purchasers`, { method: 'POST', body: JSON.stringify({ env_file: envFile }) });
+            if (result.success) {
+                const purchasers = result.data.purchasers;
+                if (!purchasers || purchasers.length === 0) { 
+                    container.innerHTML = '<div class="alert alert-warning">暂无购买人，请先在ALLCPP APP中添加购买人</div>'; 
+                    return; 
+                }
+                let html = '';
+                purchasers.forEach(p => {
+                    const hasIdCard = p.idcard && p.idcard.length > 0;
+                    const idCardDisplay = hasIdCard ? `${p.idcard.substring(0, 4)}****${p.idcard.substring(p.idcard.length-4)}` : '未填写身份证';
+                    const realNameBadge = hasIdCard ? '<span class="purchaser-badge badge-realname">已实名</span>' : '<span class="purchaser-badge badge-norealname">未实名</span>';
+                    html += `<div class="purchaser-item" onclick="togglePurchaserSelection(this, '${p.id}', 'order', event)">
+                        <input type="checkbox" value="${p.id}">
+                        <div class="purchaser-info">
+                            <div class="purchaser-name">${p.realname} ${realNameBadge}</div>
+                            <div class="purchaser-idcard">${idCardDisplay}</div>
+                        </div>
+                    </div>`;
+                });
+                html += `<div class="purchaser-actions">
+                    <button class="btn btn-sm btn-secondary" onclick="event.stopPropagation(); selectAllPurchasers('order', true)">全选</button>
+                    <button class="btn btn-sm btn-secondary" onclick="event.stopPropagation(); selectAllPurchasers('order', false)">取消全选</button>
+                </div>`;
+                html += `<div class="selected-purchasers" id="order-selected-info">已选择: 0 人</div>`;
+                container.innerHTML = html;
+                // 检查购买数量与选择人数的一致性
+                validatePurchaserCount('order');
+            } else container.innerHTML = `<div class="alert alert-error">${result.error}</div>`;
+        }
+
+        function togglePurchaserSelection(element, id, mode, event) {
+            // 如果点击的是checkbox本身，让默认行为发生，不要干预
+            if (event && event.target.type === 'checkbox') {
+                // checkbox已经自动切换了，只需要更新样式和ID
+                if (event.target.checked) {
+                    element.classList.add('selected');
+                } else {
+                    element.classList.remove('selected');
+                }
+            } else {
+                // 点击的是整行，需要手动切换checkbox
+                const checkbox = element.querySelector('input[type="checkbox"]');
+                checkbox.checked = !checkbox.checked;
+                if (checkbox.checked) {
+                    element.classList.add('selected');
+                } else {
+                    element.classList.remove('selected');
+                }
+            }
+            if (mode === 'order') {
+                updateOrderPurchaserIds();
+            } else {
+                updateSnipePurchaserIds(mode);
+            }
+        }
+
+        function selectAllPurchasers(mode, select) {
+            const containerId = mode === 'order' ? 'order-purchaser-list' : `${mode}-purchaser-list`;
+            const checkboxes = document.querySelectorAll(`#${containerId} input[type="checkbox"]`);
+            checkboxes.forEach(cb => {
+                cb.checked = select;
+                const item = cb.closest('.purchaser-item');
+                if (select) {
+                    item.classList.add('selected');
+                } else {
+                    item.classList.remove('selected');
+                }
+            });
+            if (mode === 'order') {
+                updateOrderPurchaserIds();
+            } else {
+                updateSnipePurchaserIds(mode);
+            }
+        }
+
+        function updateOrderPurchaserIds() {
+            const checkboxes = document.querySelectorAll('#order-purchaser-list input[type="checkbox"]:checked');
+            const ids = Array.from(checkboxes).map(cb => cb.value).join(',');
+            document.getElementById('order-purchaser-ids').value = ids;
+            const selectedInfo = document.getElementById('order-selected-info');
+            if (selectedInfo) {
+                selectedInfo.textContent = `已选择: ${checkboxes.length} 人`;
+            }
+        }
+
+        async function executeOrderTest() {
+            const envFile = document.getElementById('order-env-select').value;
+            const ticketId = document.getElementById('order-ticket-id').value;
+            const purchaserIds = document.getElementById('order-purchaser-ids').value;
+            const count = parseInt(document.getElementById('order-count').value) || 1;
+            const debugMode = document.getElementById('order-debug-mode').checked;
+            const orderMode = document.querySelector('input[name="order-mode"]:checked').value;
+            if (!envFile) { alert('请选择环境'); return; }
+            if (!ticketId) { alert('请选择票种'); return; }
+            if (!purchaserIds) { alert('请选择购买人'); return; }
+            const selectedCount = purchaserIds.split(',').filter(id => id.trim()).length;
+            if (count !== selectedCount) { alert(`购买数量(${count})与选择人数(${selectedCount})不一致！`); return; }
+            const container = document.getElementById('order-result');
+            container.innerHTML = '<p>测试中...</p>';
+            const result = await apiRequest('/api/order/test', { method: 'POST', body: JSON.stringify({ env_file: envFile, ticket_id: ticketId, purchaser_ids: purchaserIds, count, debug_mode: debugMode, order_mode: orderMode }) });
+            if (result.success) {
+                const data = result.data;
+                const hasSuccess = data.result || (data.results && data.results.some(r => r.result));
+                let html = `<div class="alert ${hasSuccess ? 'alert-success' : 'alert-warning'}">`;
+                if (data.mode === 'combined') {
+                    html += `<p><strong>模式:</strong> 合并下单</p><p><strong>结果:</strong> ${data.result ? '成功' : '失败'}</p>`;
+                    if (data.retry) html += '<p>需要重试</p>';
+                    if (data.result && data.pay_url) {
+                        html += `<div style="margin-top: 15px; padding: 15px; background: #e8f5e9; border-radius: 4px;">`;
+                        html += `<p><strong>支付链接:</strong></p>`;
+                        html += `<a href="${data.pay_url}" target="_blank" style="word-break: break-all; color: #28a745; font-weight: bold;">${data.pay_url}</a>`;
+                        html += `<p style="margin-top: 10px; font-size: 12px; color: #666;">请复制链接到浏览器打开支付，或打开手机 ALLCPP APP 支付</p>`;
+                        html += `</div>`;
+                    }
+                } else {
+                    html += `<p><strong>模式:</strong> 分离下单</p><p><strong>成功:</strong> ${data.success_count}/${data.total}</p>`;
+                    html += '<ul>';
+                    data.results.forEach(r => {
+                        html += `<li>${r.purchaser_id}: ${r.result ? '成功' : '失败'}`;
+                        if (r.result && r.pay_url) {
+                            html += `<br><a href="${r.pay_url}" target="_blank" style="font-size: 12px; color: #28a745;">支付链接</a>`;
+                        }
+                        html += '</li>';
+                    });
+                    html += '</ul>';
+                }
+                html += '</div>';
+                container.innerHTML = html;
+            } else container.innerHTML = `<div class="alert alert-error">${result.error}</div>`;
+        }
+
+        // 抢票模式 - 加载票种
+        async function loadSnipeTickets(mode) {
+            const envFile = document.getElementById(`${mode}-env-select`).value;
+            const eventId = document.getElementById(`${mode}-event-id`).value.trim();
+            if (!envFile) { alert('请先选择环境'); return; }
+            if (!eventId) { alert('请输入活动ID'); return; }
+            const container = document.getElementById(`${mode}-ticket-list`);
+            container.innerHTML = '<p>加载中...</p>';
+            const result = await apiRequest(`/api/process/event_tickets?event_id=${eventId}&env_file=${encodeURIComponent(envFile)}`);
+            if (result.success) {
+                const tickets = result.data.tickets;
+                if (!tickets || tickets.length === 0) { container.innerHTML = '<p>该活动暂无票种</p>'; return; }
+                let html = '';
+                tickets.forEach(t => {
+                    const price = (t.price / 100).toFixed(2);
+                    html += `<div class="ticket-item" onclick="selectSnipeTicket('${mode}', ${t.id}, '${t.name}')" data-ticket-id="${t.id}"><strong>${t.name}</strong> ${t.square ? `[${t.square}]` : ''} - ${price}元 (余票: ${t.remainder})</div>`;
+                });
+                container.innerHTML = html;
+            } else container.innerHTML = `<div class="alert alert-error">${result.error}</div>`;
+        }
+
+        function selectSnipeTicket(mode, id, name) {
+            document.getElementById(`${mode}-ticket-id`).value = id;
+            document.querySelectorAll(`#${mode}-ticket-list .ticket-item`).forEach(el => el.classList.remove('selected'));
+            document.querySelector(`#${mode}-ticket-list .ticket-item[data-ticket-id="${id}"]`).classList.add('selected');
+        }
+
+        // 抢票模式 - 加载购买人
+        async function loadSnipePurchasers(mode) {
+            const envFile = document.getElementById(`${mode}-env-select`).value;
+            if (!envFile) { alert('请先选择环境'); return; }
+            const container = document.getElementById(`${mode}-purchaser-list`);
+            container.innerHTML = '<p>加载中...</p>';
+            const result = await apiRequest(`/api/process/purchasers?env_file=${encodeURIComponent(envFile)}`);
+            if (result.success) {
+                const purchasers = result.data.purchasers;
+                if (!purchasers || purchasers.length === 0) { 
+                    container.innerHTML = '<div class="alert alert-warning">暂无购买人，请先在ALLCPP APP中添加购买人</div>'; 
+                    return; 
+                }
+                let html = '';
+                purchasers.forEach(p => {
+                    const hasIdCard = p.idcard && p.idcard.length > 0;
+                    const idCardDisplay = hasIdCard ? `${p.idcard.substring(0, 4)}****${p.idcard.substring(p.idcard.length-4)}` : '未填写身份证';
+                    const realNameBadge = hasIdCard ? '<span class="purchaser-badge badge-realname">已实名</span>' : '<span class="purchaser-badge badge-norealname">未实名</span>';
+                    html += `<div class="purchaser-item" onclick="togglePurchaserSelection(this, '${p.id}', '${mode}', event)">
+                        <input type="checkbox" value="${p.id}">
+                        <div class="purchaser-info">
+                            <div class="purchaser-name">${p.realname} ${realNameBadge}</div>
+                            <div class="purchaser-idcard">${idCardDisplay}</div>
+                        </div>
+                    </div>`;
+                });
+                html += `<div class="purchaser-actions">
+                    <button class="btn btn-sm btn-secondary" onclick="event.stopPropagation(); selectAllPurchasers('${mode}', true)">全选</button>
+                    <button class="btn btn-sm btn-secondary" onclick="event.stopPropagation(); selectAllPurchasers('${mode}', false)">取消全选</button>
+                </div>`;
+                html += `<div class="selected-purchasers" id="${mode}-selected-info">已选择: 0 人</div>`;
+                container.innerHTML = html;
+                // 检查购买数量与选择人数的一致性
+                validatePurchaserCount(mode);
+            } else container.innerHTML = `<div class="alert alert-error">${result.error}</div>`;
+        }
+
+        function updateSnipePurchaserIds(mode) {
+            const checkboxes = document.querySelectorAll(`#${mode}-purchaser-list input[type="checkbox"]:checked`);
+            const ids = Array.from(checkboxes).map(cb => cb.value).join(',');
+            document.getElementById(`${mode}-purchaser-ids`).value = ids;
+            const selectedInfo = document.getElementById(`${mode}-selected-info`);
+            if (selectedInfo) {
+                selectedInfo.textContent = `已选择: ${checkboxes.length} 人`;
+            }
+            // 检查购买数量与选择人数的一致性
+            validatePurchaserCount(mode);
+        }
+
+        // 验证购买数量与选择人数是否一致
+        function validatePurchaserCount(mode) {
+            let countInput, purchaserIdsInput, selectedInfo;
+            if (mode === 'order') {
+                countInput = document.getElementById('order-count');
+                purchaserIdsInput = document.getElementById('order-purchaser-ids');
+                selectedInfo = document.getElementById('order-selected-info');
+            } else {
+                countInput = document.getElementById(`${mode}-count`);
+                purchaserIdsInput = document.getElementById(`${mode}-purchaser-ids`);
+                selectedInfo = document.getElementById(`${mode}-selected-info`);
+            }
+            
+            if (!countInput || !purchaserIdsInput || !selectedInfo) return;
+            
+            const count = parseInt(countInput.value) || 1;
+            const selectedIds = purchaserIdsInput.value.split(',').filter(id => id.trim());
+            const selectedCount = selectedIds.length;
+            
+            if (selectedCount > 0 && count !== selectedCount) {
+                selectedInfo.innerHTML = `已选择: ${selectedCount} 人 <span style="color: #dc3545; font-weight: bold;">⚠️ 购买数量(${count})与选择人数(${selectedCount})不一致！</span>`;
+                return false;
+            } else if (selectedCount > 0) {
+                selectedInfo.innerHTML = `已选择: ${selectedCount} 人 <span style="color: #28a745;">✓ 数量匹配</span>`;
+                return true;
+            }
+            return true;
+        }
+
+        // 监听购买数量变化
+        document.addEventListener('DOMContentLoaded', function() {
+            const orderCount = document.getElementById('order-count');
+            if (orderCount) {
+                orderCount.addEventListener('change', () => validatePurchaserCount('order'));
+            }
+            const presaleCount = document.getElementById('presale-count');
+            if (presaleCount) {
+                presaleCount.addEventListener('change', () => validatePurchaserCount('presale'));
+            }
+            const resaleCount = document.getElementById('resale-count');
+            if (resaleCount) {
+                resaleCount.addEventListener('change', () => validatePurchaserCount('resale'));
+            }
+        });
+
+        // 计算时间偏移
+        async function calculateTimeOffset() {
+            const resultDiv = document.getElementById('time-offset-result');
+            resultDiv.innerHTML = '<span style="color: #666;">计算中...</span>';
+
+            const result = await apiRequest('/api/process/time_offset', { method: 'GET' });
+
+            if (result.success) {
+                const offsetMs = result.data.offset_ms;
+                const offsetInput = document.getElementById('presale-time-offset');
+                offsetInput.value = offsetMs.toFixed(2);
+
+                let color = offsetMs > 0 ? '#28a745' : '#dc3545';
+                let direction = offsetMs > 0 ? '本地时间快' : '本地时间慢';
+                resultDiv.innerHTML = `<span style="color: ${color};">${direction} ${Math.abs(offsetMs).toFixed(2)}ms</span>`;
+            } else {
+                resultDiv.innerHTML = `<span style="color: #dc3545;">计算失败: ${result.error}</span>`;
+            }
+        }
+
+        async function createPresaleProcess() {
+            const name = document.getElementById('presale-name').value.trim() || '预售抢票';
+            const envFile = document.getElementById('presale-env-select').value;
+            const ticketId = document.getElementById('presale-ticket-id').value;
+            const purchaserIds = document.getElementById('presale-purchaser-ids').value;
+            const count = parseInt(document.getElementById('presale-count').value) || 1;
+            const delay = parseInt(document.getElementById('presale-delay').value) || 150;
+            const burstDelay = parseInt(document.getElementById('presale-burst-delay').value) || 70;
+            const timeOffset = parseFloat(document.getElementById('presale-time-offset').value) || 0;
+            const debugMode = document.getElementById('presale-debug-mode').checked;
+            const orderMode = document.querySelector('input[name="presale-order-mode"]:checked')?.value || 'merge';
+            if (!envFile || !ticketId || !purchaserIds) { alert('请填写完整配置'); return; }
+            const selectedCount = purchaserIds.split(',').filter(id => id.trim()).length;
+            if (count !== selectedCount) { alert(`购买数量(${count})与选择人数(${selectedCount})不一致！`); return; }
+            const result = await apiRequest('/api/process/create', { method: 'POST', body: JSON.stringify({ name, mode: 'presale', config: { env_file: envFile, ticket_id: ticketId, purchaser_ids: purchaserIds, count, delay, burst_delay: burstDelay, time_offset: timeOffset / 1000, debug_mode: debugMode, presale_mode: orderMode } }) });
+            if (result.success) {
+                const processId = result.data.process_id;
+                await apiRequest('/api/process/start', { method: 'POST', body: JSON.stringify({ process_id: processId }) });
+                alert('预售进程已创建并启动');
+                loadProcessList();
+            } else alert(result.error);
+        }
+
+        async function createResaleProcess() {
+            const name = document.getElementById('resale-name').value.trim() || '回流抢票';
+            const envFile = document.getElementById('resale-env-select').value;
+            const eventId = document.getElementById('resale-event-id').value.trim();
+            const ticketId = document.getElementById('resale-ticket-id').value;
+            const purchaserIds = document.getElementById('resale-purchaser-ids').value;
+            const count = parseInt(document.getElementById('resale-count').value) || 1;
+            const refreshDelay = parseFloat(document.getElementById('resale-refresh-delay').value) || 1;
+            const debugMode = document.getElementById('resale-debug-mode').checked;
+            if (!envFile || !eventId || !ticketId || !purchaserIds) { alert('请填写完整配置'); return; }
+            const selectedCount = purchaserIds.split(',').filter(id => id.trim()).length;
+            if (count !== selectedCount) { alert(`购买数量(${count})与选择人数(${selectedCount})不一致！`); return; }
+            const result = await apiRequest('/api/process/create', { method: 'POST', body: JSON.stringify({ name, mode: 'resale', config: { env_file: envFile, event_id: eventId, ticket_id: ticketId, purchaser_ids: purchaserIds, count, refresh_delay: refreshDelay, debug_mode: debugMode } }) });
+            if (result.success) {
+                const processId = result.data.process_id;
+                await apiRequest('/api/process/start', { method: 'POST', body: JSON.stringify({ process_id: processId }) });
+                alert('回流进程已创建并启动');
+                loadProcessList();
+            } else alert(result.error);
+        }
+
+        async function loadProcessList() {
+            const result = await apiRequest('/api/process/list');
+            if (result.success) renderProcessList(result.data);
+        }
+
+        function renderProcessList(processes) {
+            const container = document.getElementById('process-list');
+            if (!processes || processes.length === 0) {
+                container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">⚙️</div><p>暂无抢票进程</p></div>';
+                return;
+            }
+            let html = '<table class="table"><thead><tr><th>ID</th><th>名称</th><th>模式</th><th>状态</th><th>开始时间</th><th>消息</th><th>操作</th></tr></thead><tbody>';
+            processes.forEach(p => {
+                let statusClass, statusText;
+                if (p.status === 'running') {
+                    statusClass = 'status-running';
+                    statusText = '运行中';
+                } else if (p.status === 'starting') {
+                    statusClass = 'status-starting';
+                    statusText = '启动中';
+                } else if (p.status === 'success') {
+                    statusClass = 'status-success';
+                    statusText = '✅ 成功';
+                } else {
+                    statusClass = 'status-stopped';
+                    statusText = '已停止';
+                }
+                const modeText = p.mode === 'presale' ? '预售' : '回流';
+                html += `<tr><td>${p.id}</td><td>${p.name}</td><td>${modeText}</td><td><span class="status-indicator ${statusClass}"></span>${statusText}</td><td>${p.start_time}</td><td>${p.message || '-'}</td><td><div class="actions">${p.status === 'running' ? `<button class="btn btn-sm btn-danger" onclick="stopProcess('${p.id}')">停止</button>` : ''}<button class="btn btn-sm btn-primary" onclick="showProcessLog('${p.id}')">日志</button></div></td></tr>`;
+            });
+            html += '</tbody></table>';
+            container.innerHTML = html;
+        }
+
+        async function startProcess(processId) {
+            const result = await apiRequest('/api/process/start', { method: 'POST', body: JSON.stringify({ process_id: processId }) });
+            if (result.success) loadProcessList();
+            else alert(result.error);
+        }
+
+        async function stopProcess(processId) {
+            const result = await apiRequest('/api/process/stop', { method: 'POST', body: JSON.stringify({ process_id: processId }) });
+            if (result.success) loadProcessList();
+            else alert(result.error);
+        }
+
+        async function cleanupStoppedProcesses() {
+            const result = await apiRequest('/api/process/cleanup', { method: 'POST' });
+            if (result.success) { loadProcessList(); showAlert('process-list', '已清理停止的进程', 'success'); }
+            else alert(result.error);
+        }
+
+        function showProcessLog(processId) {
+            currentProcessId = processId;
+            showModal('process-log-modal');
+            refreshProcessLog();
+        }
+
+        async function refreshProcessLog() {
+            if (!currentProcessId) return;
+            const result = await apiRequest(`/api/process/logs?process_id=${currentProcessId}&lines=100`);
+            if (result.success) {
+                const logs = result.data.logs;
+                document.getElementById('process-log-content').textContent = logs.join('') || '暂无日志';
+            }
+        }
+
+        function showAlert(containerId, message, type) {
+            const container = document.getElementById(containerId);
+            const alert = document.createElement('div');
+            alert.className = `alert alert-${type}`;
+            alert.textContent = message;
+            container.insertBefore(alert, container.firstChild);
+            setTimeout(() => alert.remove(), 3000);
+        }
+    </script>
+</body>
+</html>

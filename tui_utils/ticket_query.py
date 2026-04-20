@@ -299,21 +299,24 @@ def query_by_id(app):
         table.add_column("序号", style="cyan", width=5)
         table.add_column("票种ID", style="green")
         table.add_column("票种名称", style="yellow")
+        table.add_column("场次", style="cyan")
         table.add_column("价格", style="magenta")
         table.add_column("余票", style="blue")
         table.add_column("实名", style="white")
-        
+
         for idx, ticket in enumerate(ticket_list, 1):
             ticket_id = ticket.get("id", "")
             name = ticket.get("ticketName") or ticket.get("name", "")
+            square = ticket.get("square", "")
             price = ticket.get("ticketPrice") or ticket.get("price", 0)
             stock = ticket.get("remainderNum", 0)
             is_real_name = ticket.get("realnameAuth") or ticket.get("isRealName", False)
-            
+
             table.add_row(
                 str(idx),
                 str(ticket_id),
                 name,
+                square if square else "-",
                 f"{price/100 if price else 0}元",
                 str(stock),
                 "是" if is_real_name else "否"
@@ -416,18 +419,21 @@ def view_ticket_info(app):
         table = Table(box=box.SIMPLE, show_header=True)
         table.add_column("属性", style="cyan")
         table.add_column("值", style="green")
-        
+
         ticket_id = ticket.get("id", "")
         name = ticket.get("ticketName") or ticket.get("name", "")
+        square = ticket.get("square", "")
         price = ticket.get("ticketPrice") or ticket.get("price", 0)
         stock = ticket.get("remainderNum", 0)
         is_real_name = ticket.get("realnameAuth") or ticket.get("isRealName", False)
         sell_start = ticket.get("sellStartTime", 0)
         sell_end = ticket.get("sellEndTime", 0)
         description = ticket.get("ticketDescription", "")
-        
+
         table.add_row("票种ID", str(ticket_id))
         table.add_row("票种名称", name)
+        if square:
+            table.add_row("场次", square)
         table.add_row("价格", f"{price/100 if price else 0}元")
         table.add_row("余票", str(stock))
         table.add_row("是否实名", "是" if is_real_name else "否")

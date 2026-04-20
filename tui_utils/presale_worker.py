@@ -9,6 +9,10 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
 from rich.table import Table
+from rich import box
+
+# 添加项目根目录到路径
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 console = Console()
 
@@ -42,7 +46,12 @@ def submit_ticket_order(session, ticket_id: str, purchaser_ids: str, count: int,
     try:
         from utils.ticket.purchase import submit_ticket_order as submit_order
         
-        result, retry, _ = submit_order(session, ticket_id, purchaser_ids, debug_mode, count)
+        result, retry, should_stop = submit_order(session, ticket_id, purchaser_ids, debug_mode, count)
+        
+        # 调试模式下打印详细返回信息
+        if debug_mode and not result:
+            console.print(f"[dim][调试] 下单结果: 成功={result}, 重试={retry}, 停止={should_stop}[/dim]")
+        
         return result, retry
     except Exception as e:
         if debug_mode:
@@ -189,14 +198,14 @@ def run_presale_mode(config_file):
                 purchaser_id = purchaser_id_list[order_count % len(purchaser_id_list)]
             else:
                 purchaser_id = ""
-            
+
             result, retry = submit_ticket_order(session, ticket_id, purchaser_id, 1, debug_mode)
         else:
             # 合并模式：一次下单多张
             result, retry = submit_ticket_order(session, ticket_id, purchaser_ids, ticket_count, debug_mode)
-        
+
         order_count += 1
-        
+
         if result:
             success = True
             console.print("[bold green]抢票成功！[/bold green]")
@@ -204,6 +213,8 @@ def run_presale_mode(config_file):
         else:
             if not retry:
                 console.print("[yellow]无需重试，抢票失败[/yellow]")
+                if debug_mode:
+                    console.print("[dim][调试] 详细错误信息见上方输出[/dim]")
                 break
             else:
                 console.print("[yellow]抢票失败，继续重试...[/yellow]")
@@ -258,9 +269,20 @@ def start_reflux_mode(config_file):
     try:
         if sys.platform == "win32":
             subprocess.Popen([sys.executable, script_path, resale_config_file], creationflags=subprocess.CREATE_NEW_CONSOLE)
+        elif sys.platform == "darwin":
+            # macOS - 使用 Terminal.app 打开新窗口
+            # 创建临时脚本文件
+            temp_script = f"/tmp/resale_worker_{int(time.time())}.sh"
+            with open(temp_script, "w") as f:
+                f.write(f"#!/bin/bash\n")
+                f.write(f"cd '{os.path.dirname(os.path.dirname(__file__))}'\n")
+                f.write(f"'{sys.executable}' '{script_path}' '{resale_config_file}'\n")
+                f.write(f"rm -f '{temp_script}'\n")
+            os.chmod(temp_script, 0o755)
+            subprocess.Popen(["open", "-a", "Terminal", temp_script])
         else:
             subprocess.Popen([sys.executable, script_path, resale_config_file])
-        
+
         console.print("[green]回流模式窗口已启动！[/green]")
     except Exception as e:
         console.print(f"[red]启动回流模式失败: {e}[/red]")

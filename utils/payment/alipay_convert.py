@@ -66,7 +66,7 @@ class AiliPay(object):
         }
         response = requests.post(url, headers=headers, json=data, verify=False)
         json_data = json.loads(response.text)
-        # print(json_data)
+        #print(json_data)
         res_data = self.decrypt_3des(json_data['data']['params']['res_data'])
         json_data = json.loads(res_data)
         # print(json_data['form']['onload']['name'])
