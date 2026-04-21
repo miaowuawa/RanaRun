@@ -1,19 +1,27 @@
+# Web框架
+Flask==3.0.3
+Flask-Cors==4.0.0
+Werkzeug==3.1.8
+
+# HTTP请求
+requests==2.33.1
+urllib3==2.6.3
 certifi==2026.2.25
 charset-normalizer==3.4.7
-click==8.1.8
-Flask==3.1.0
-flask-cors==5.0.1
 idna==3.11
-itsdangerous==2.2.0
-Jinja2==3.1.6
-markdown-it-py==4.0.0
-MarkupSafe==3.0.2
-mdurl==0.1.2
-pip==26.0.1
-pycryptodome==3.23.0
-Pygments==2.20.0
-random-user-agent==1.0.1
-requests==2.33.1
+
+# 终端UI
 rich==14.3.3
-urllib3==2.6.3
-Werkzeug==3.1.3
+Pygments==2.20.0
+markdown-it-py==4.0.0
+mdurl==0.1.2
+
+# 加密
+pycryptodome==3.23.0
+
+# 其他工具
+click==8.3.2
+Jinja2==3.1.6
+MarkupSafe==3.0.3
+itsdangerous==2.2.0
+random-user-agent==1.0.1

@@ -793,8 +793,9 @@
             const exitIp = document.getElementById('edit-exit-ip').value.trim();
 
             const config = {};
-            if (proxy) config.proxy = proxy;
-            if (exitIp) config.exit_ip = exitIp;
+            // 总是发送proxy和exit_ip，即使为空也要更新（允许清空）
+            config.proxy = proxy;
+            config.exit_ip = exitIp;
 
             const result = await apiRequest('/api/env/update', { method: 'POST', body: JSON.stringify({ file, config }) });
             if (result.success) {
