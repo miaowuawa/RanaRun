@@ -171,14 +171,6 @@ def presale_worker(config: dict, process_id: str):
         # 解析购买者ID
         purchaser_id_list = [pid.strip() for pid in purchaser_ids.split(",") if pid.strip()]
 
-        # 计算需要抢的票数
-        if presale_mode == "split":
-            # 分离模式：每单1张，需要抢ticket_count次
-            total_orders = ticket_count
-        else:
-            # 合并模式：一次下单ticket_count张
-            total_orders = 1
-
         # 获取票种信息，提取开售时间
         log("正在获取票种信息...")
         ticket_info = get_ticket_info(session, ticket_id, log)
@@ -197,9 +189,15 @@ def presale_worker(config: dict, process_id: str):
 
         # 初始化抢票循环变量
         order_count = 0
-        success = False
+        success_count = 0  # 成功订单数（分离模式下可能有多单）
+        max_orders = 1000  # 最大尝试次数，防止无限循环
 
-        while order_count < total_orders and not success:
+        # 分离模式：需要抢ticket_count单；合并模式：只需成功1单
+        target_success = ticket_count if presale_mode == "split" else 1
+
+        log(f"目标：成功抢购 {target_success} 单")
+
+        while order_count < max_orders and success_count < target_success:
             try:
                 current_time = time.time()
 
@@ -220,7 +218,7 @@ def presale_worker(config: dict, process_id: str):
 
                 # 提交订单
                 if presale_mode == "split" and purchaser_id_list:
-                    purchaser_id = purchaser_id_list[order_count % len(purchaser_id_list)]
+                    purchaser_id = purchaser_id_list[success_count % len(purchaser_id_list)]
                     result, retry, should_stop, details = submit_ticket_order_with_details(session, ticket_id, purchaser_id, debug_mode, 1, notifier)
                 else:
                     result, retry, should_stop, details = submit_ticket_order_with_details(session, ticket_id, purchaser_ids, debug_mode, ticket_count, notifier)
@@ -228,10 +226,10 @@ def presale_worker(config: dict, process_id: str):
                 order_count += 1
 
                 if result:
-                    success = True
+                    success_count += 1
                     pay_url = details.get("pay_url") if details else None
                     order_info = details.get("order_info") if details else None
-                    log(f"抢票成功！共尝试 {order_count} 次")
+                    log(f"第 {success_count}/{target_success} 单抢票成功！共尝试 {order_count} 次")
                     if order_info:
                         log(f"订单信息: {order_info}")
                     if pay_url:
@@ -254,7 +252,14 @@ def presale_worker(config: dict, process_id: str):
                     except Exception:
                         pass  # 通知失败不影响抢票
 
-                    break
+                    # 如果已达到目标，退出循环
+                    if success_count >= target_success:
+                        break
+
+                    # 分离模式下，抢下一单前稍微延迟
+                    if presale_mode == "split":
+                        log("等待1秒后抢下一单...")
+                        time.sleep(1)
                 else:
                     if not retry:
                         log(f"无需重试，抢票失败 (尝试 {order_count} 次)")
@@ -269,8 +274,12 @@ def presale_worker(config: dict, process_id: str):
                 log(f"下单异常: {e}")
                 time.sleep(1)
 
-        if not success:
+        if success_count == 0:
             log(f"抢票结束，未成功。共尝试 {order_count} 次")
+        elif success_count < target_success:
+            log(f"抢票结束，部分成功。成功 {success_count}/{target_success} 单，共尝试 {order_count} 次")
+        else:
+            log(f"抢票成功！共成功 {success_count} 单，尝试 {order_count} 次")
 
     except Exception as e:
         log(f"进程异常: {e}")

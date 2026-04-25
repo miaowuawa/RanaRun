@@ -177,12 +177,12 @@ def submit_ticket_order_with_details(session: requests.Session, ticket_id: str, 
                 console.print(f"[yellow][调试][限购提示] {message}[/yellow]")
             return False, False, True, details
         
-        if "拥挤" in message:
+        elif "拥挤" in message:
             retry_count += 1
             if debug_mode:
                 console.print(f"[yellow][调试][服务器卡顿] 请求阻塞，重试中（第{retry_count}次）[/yellow]")
             return False, True, False, details
-        if "超时" in message:
+        elif "超时" in message:
             if debug_mode:
                 console.print(f"[red][调试][下单报错] 请求超时，可能是网络不好，协议异常或者本地时间偏差[/red]")
             return False, True, False, details
@@ -190,7 +190,7 @@ def submit_ticket_order_with_details(session: requests.Session, ticket_id: str, 
             if debug_mode:
                 console.print(f"[yellow][调试][下单报错] 可用库存不足[/yellow]")
             return False, True, False, details
-        elif "开票时间未到" in message or "未开始" in message or "时间" in message:
+        elif "开票时间未到" in message or "未开始" in message:
             if debug_mode:
                 console.print(f"[yellow][调试][下单报错] 开票时间未到，继续重试...[/yellow]")
             return False, True, False, details
