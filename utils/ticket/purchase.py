@@ -192,7 +192,17 @@ def submit_ticket_order_with_details(session: requests.Session, ticket_id: str, 
             return False, True, False, details
         elif "开票时间未到" in message or "未开始" in message:
             if debug_mode:
-                console.print(f"[yellow][调试][下单报错] 开票时间未到，继续重试...[/yellow]")
+                console.print(f"[yellow][调试][下单报错] 开票时间未到，等待后重试...[/yellow]")
+            # 等待1秒后重试，避免频繁请求
+            import time
+            time.sleep(1)
+            return False, True, False, details
+        elif "频繁" in message or "稍后" in message:
+            if debug_mode:
+                console.print(f"[yellow][调试][请求频繁] 请求过于频繁，等待2秒后重试...[/yellow]")
+            # 等待2秒后重试
+            import time
+            time.sleep(2)
             return False, True, False, details
         elif result.get("isSuccess") == True:
             if debug_mode:
