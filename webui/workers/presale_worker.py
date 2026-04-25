@@ -6,12 +6,14 @@ import time
 import random
 import os
 import sys
+from datetime import datetime
 
 # 添加项目根目录到路径
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from utils.env2sess import env_to_request_session
 from utils.ticket.purchase import submit_ticket_order_with_details
+from utils.notification.yhchat import create_notifier_from_config
 
 
 def get_random_delay_ms(base_delay_ms: int) -> float:
@@ -26,6 +28,84 @@ def get_random_delay_ms(base_delay_ms: int) -> float:
     ms_delay = random.uniform(0.01, 0.05)
     actual_delay = (base_delay_ms / 1000) + random_offset + ms_delay
     return max(0.01, actual_delay)
+
+
+def get_ticket_info(session, ticket_id, log_func):
+    """
+    获取票种详细信息，包括开售时间
+    """
+    try:
+        from utils.ticket.check import get_ticket_info as _get_ticket_info
+        ticket_data = _get_ticket_info(session, ticket_id, 0.5)
+        if ticket_data and isinstance(ticket_data, dict):
+            # 尝试从result中获取
+            if ticket_data.get("isSuccess") and "result" in ticket_data:
+                return ticket_data["result"]
+            # 或者直接返回
+            return ticket_data
+        return None
+    except Exception as e:
+        log_func(f"获取票种信息失败: {e}")
+        return None
+
+
+def wait_for_sale_start(sell_start_time_ms, time_offset, log_func):
+    """
+    等待到开售时间
+    Args:
+        sell_start_time_ms: 开售时间（毫秒时间戳）
+        time_offset: 时间偏移（秒）
+        log_func: 日志函数
+    Returns:
+        实际开售时间（秒时间戳，考虑偏移）
+    """
+    if not sell_start_time_ms:
+        log_func("未获取到开售时间，立即开始抢票")
+        return time.time() + time_offset
+
+    # 转换为秒
+    sell_start_time = sell_start_time_ms / 1000
+
+    # 考虑时间偏移后的开售时间
+    adjusted_sell_start = sell_start_time + time_offset
+
+    current_time = time.time()
+
+    # 格式化时间显示
+    sell_start_str = datetime.fromtimestamp(sell_start_time).strftime("%Y-%m-%d %H:%M:%S")
+    adjusted_str = datetime.fromtimestamp(adjusted_sell_start).strftime("%Y-%m-%d %H:%M:%S")
+
+    log_func(f"票种开售时间: {sell_start_str}")
+    log_func(f"考虑时间偏移后: {adjusted_str}")
+
+    # 如果还没到开售时间，等待
+    wait_seconds = adjusted_sell_start - current_time
+
+    if wait_seconds > 0:
+        log_func(f"等待开售，还需 {wait_seconds:.1f} 秒...")
+
+        # 分段等待，避免长时间阻塞
+        while wait_seconds > 0:
+            if wait_seconds > 60:
+                sleep_time = 60
+            elif wait_seconds > 10:
+                sleep_time = 10
+            else:
+                sleep_time = min(1, wait_seconds)
+
+            time.sleep(sleep_time)
+            current_time = time.time()
+            wait_seconds = adjusted_sell_start - current_time
+
+            # 每10秒输出一次日志
+            if wait_seconds > 0 and int(wait_seconds) % 10 == 0:
+                log_func(f"等待中... 还剩 {wait_seconds:.1f} 秒")
+
+        log_func("开售时间到！开始抢票")
+    else:
+        log_func(f"开售时间已过 {abs(wait_seconds):.1f} 秒，立即开始抢票")
+
+    return adjusted_sell_start
 
 
 def presale_worker(config: dict, process_id: str):
@@ -44,6 +124,11 @@ def presale_worker(config: dict, process_id: str):
         print(log_msg)
         with open(log_file, "a", encoding="utf-8") as f:
             f.write(log_msg + "\n")
+
+    # 初始化云湖通知器
+    notifier = create_notifier_from_config(config)
+    if notifier.enabled:
+        log("云湖通知已启用")
 
     try:
         log(f"预售模式进程 {process_id} 启动")
@@ -93,14 +178,21 @@ def presale_worker(config: dict, process_id: str):
             # 合并模式：一次下单ticket_count张
             total_orders = 1
 
-        # 抢票循环
-        order_count = 0
-        success = False
-        start_time = time.time() + time_offset  # 考虑时间偏移
+        # 获取票种信息，提取开售时间
+        log("正在获取票种信息...")
+        ticket_info = get_ticket_info(session, ticket_id, log)
+        sell_start_time_ms = None
+        if ticket_info:
+            sell_start_time_ms = ticket_info.get("sellStartTime")
+            ticket_name = ticket_info.get("ticketName") or ticket_info.get("name", "")
+            log(f"票种名称: {ticket_name}")
+
+        # 等待到开售时间
+        start_time = wait_for_sale_start(sell_start_time_ms, time_offset, log)
         burst_mode_end_time = start_time + 2  # 爆发模式持续2秒
 
         log(f"开始抢票... 前2秒使用爆发模式({burst_delay_ms}ms)，之后使用正常模式({delay_ms}ms)")
-        log(f"实际开抢时间(考虑偏移): {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(start_time))}")
+        log(f"实际开抢时间: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(start_time))}")
 
         while order_count < total_orders and not success:
             try:
@@ -124,9 +216,9 @@ def presale_worker(config: dict, process_id: str):
                 # 提交订单
                 if presale_mode == "split" and purchaser_id_list:
                     purchaser_id = purchaser_id_list[order_count % len(purchaser_id_list)]
-                    result, retry, should_stop, details = submit_ticket_order_with_details(session, ticket_id, purchaser_id, debug_mode, 1)
+                    result, retry, should_stop, details = submit_ticket_order_with_details(session, ticket_id, purchaser_id, debug_mode, 1, notifier)
                 else:
-                    result, retry, should_stop, details = submit_ticket_order_with_details(session, ticket_id, purchaser_ids, debug_mode, ticket_count)
+                    result, retry, should_stop, details = submit_ticket_order_with_details(session, ticket_id, purchaser_ids, debug_mode, ticket_count, notifier)
 
                 order_count += 1
 
@@ -149,6 +241,14 @@ def presale_worker(config: dict, process_id: str):
                                 log(f"支付链接: {pay_url}")
                         except Exception as e:
                             log(f"支付链接生成失败: {e}")
+
+                    # 发送抢票成功通知
+                    try:
+                        if notifier.enabled:
+                            notifier.notify_purchase_success("预售抢票", f"票种ID: {ticket_id}", pay_url, order_info)
+                    except Exception:
+                        pass  # 通知失败不影响抢票
+
                     break
                 else:
                     if not retry:

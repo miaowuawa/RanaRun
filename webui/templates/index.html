@@ -358,6 +358,28 @@
         <!-- 进程管理 -->
         <div class="content-section" id="process-section">
             <div class="card">
+                <div class="card-title">云湖通知配置</div>
+                <div class="form-group">
+                    <label>机器人Token</label>
+                    <input type="text" class="form-control" id="yhchat-token" placeholder="从云湖获取的机器人Token">
+                    <small style="color: #666;">在云湖APP中创建机器人获取Token</small>
+                </div>
+                <div class="form-group">
+                    <label>接收用户ID</label>
+                    <input type="text" class="form-control" id="yhchat-user-id" placeholder="你的云湖用户ID">
+                    <small style="color: #666;">在云湖APP中查看个人资料获取用户ID</small>
+                </div>
+                <div class="form-group checkbox-group">
+                    <input type="checkbox" id="yhchat-enabled">
+                    <label for="yhchat-enabled" style="margin-bottom: 0;">启用云湖通知</label>
+                </div>
+                <div class="actions">
+                    <button class="btn btn-secondary" onclick="saveYHChatConfig()">保存配置</button>
+                    <button class="btn btn-primary" onclick="testYHChatNotification()">测试通知</button>
+                </div>
+            </div>
+
+            <div class="card">
                 <div class="card-title">抢票进程列表</div>
                 <div class="actions" style="margin-bottom: 15px;">
                     <button class="btn btn-secondary" onclick="loadProcessList()">刷新</button>
@@ -532,6 +554,7 @@
             loadEnvList();
             loadProcessList();
             loadCities();
+            loadYHChatConfig();
 
             // 爆发模式切换
             document.getElementById('presale-burst-mode').addEventListener('change', function() {
@@ -1238,7 +1261,12 @@
             if (!envFile || !ticketId || !purchaserIds) { alert('请填写完整配置'); return; }
             const selectedCount = purchaserIds.split(',').filter(id => id.trim()).length;
             if (count !== selectedCount) { alert(`购买数量(${count})与选择人数(${selectedCount})不一致！`); return; }
-            const result = await apiRequest('/api/process/create', { method: 'POST', body: JSON.stringify({ name, mode: 'presale', config: { env_file: envFile, ticket_id: ticketId, purchaser_ids: purchaserIds, count, delay, burst_delay: burstDelay, time_offset: timeOffset / 1000, debug_mode: debugMode, presale_mode: orderMode } }) });
+
+            // 合并云湖配置
+            const yhchatConfig = getYHChatConfig();
+            const processConfig = { env_file: envFile, ticket_id: ticketId, purchaser_ids: purchaserIds, count, delay, burst_delay: burstDelay, time_offset: timeOffset / 1000, debug_mode: debugMode, presale_mode: orderMode, ...yhchatConfig };
+
+            const result = await apiRequest('/api/process/create', { method: 'POST', body: JSON.stringify({ name, mode: 'presale', config: processConfig }) });
             if (result.success) {
                 const processId = result.data.process_id;
                 await apiRequest('/api/process/start', { method: 'POST', body: JSON.stringify({ process_id: processId }) });
@@ -1259,7 +1287,12 @@
             if (!envFile || !eventId || !ticketId || !purchaserIds) { alert('请填写完整配置'); return; }
             const selectedCount = purchaserIds.split(',').filter(id => id.trim()).length;
             if (count !== selectedCount) { alert(`购买数量(${count})与选择人数(${selectedCount})不一致！`); return; }
-            const result = await apiRequest('/api/process/create', { method: 'POST', body: JSON.stringify({ name, mode: 'resale', config: { env_file: envFile, event_id: eventId, ticket_id: ticketId, purchaser_ids: purchaserIds, count, refresh_delay: refreshDelay, debug_mode: debugMode } }) });
+
+            // 合并云湖配置
+            const yhchatConfig = getYHChatConfig();
+            const processConfig = { env_file: envFile, event_id: eventId, ticket_id: ticketId, purchaser_ids: purchaserIds, count, refresh_delay: refreshDelay, debug_mode: debugMode, ...yhchatConfig };
+
+            const result = await apiRequest('/api/process/create', { method: 'POST', body: JSON.stringify({ name, mode: 'resale', config: processConfig }) });
             if (result.success) {
                 const processId = result.data.process_id;
                 await apiRequest('/api/process/start', { method: 'POST', body: JSON.stringify({ process_id: processId }) });
@@ -1318,6 +1351,86 @@
             const result = await apiRequest('/api/process/cleanup', { method: 'POST' });
             if (result.success) { loadProcessList(); showAlert('process-list', '已清理停止的进程', 'success'); }
             else alert(result.error);
+        }
+
+        // 获取云湖配置
+        function getYHChatConfig() {
+            const enabled = document.getElementById('yhchat-enabled').checked;
+            if (!enabled) return {};
+
+            const token = document.getElementById('yhchat-token').value.trim();
+            const userId = document.getElementById('yhchat-user-id').value.trim();
+
+            if (!token || !userId) {
+                return {};
+            }
+
+            return {
+                yhchat_token: token,
+                yhchat_user_id: userId,
+                yhchat_recv_type: 'user'
+            };
+        }
+
+        // 保存云湖配置到本地存储
+        function saveYHChatConfig() {
+            const config = {
+                enabled: document.getElementById('yhchat-enabled').checked,
+                token: document.getElementById('yhchat-token').value.trim(),
+                userId: document.getElementById('yhchat-user-id').value.trim()
+            };
+            localStorage.setItem('yhchat_config', JSON.stringify(config));
+            alert('云湖配置已保存');
+        }
+
+        // 加载云湖配置
+        function loadYHChatConfig() {
+            try {
+                const config = JSON.parse(localStorage.getItem('yhchat_config') || '{}');
+                if (config.token) {
+                    document.getElementById('yhchat-token').value = config.token;
+                }
+                if (config.userId) {
+                    document.getElementById('yhchat-user-id').value = config.userId;
+                }
+                document.getElementById('yhchat-enabled').checked = config.enabled || false;
+            } catch (e) {
+                console.log('加载云湖配置失败:', e);
+            }
+        }
+
+        // 测试云湖通知
+        async function testYHChatNotification() {
+            const token = document.getElementById('yhchat-token').value.trim();
+            const userId = document.getElementById('yhchat-user-id').value.trim();
+
+            if (!token || !userId) {
+                alert('请先填写机器人Token和接收用户ID');
+                return;
+            }
+
+            const btn = document.querySelector('button[onclick="testYHChatNotification()"]');
+            const originalText = btn.textContent;
+            btn.textContent = '发送中...';
+            btn.disabled = true;
+
+            try {
+                const result = await apiRequest('/api/process/test_notification', {
+                    method: 'POST',
+                    body: JSON.stringify({ token, user_id: userId })
+                });
+
+                if (result.success) {
+                    alert('测试消息已发送，请检查云湖APP是否收到');
+                } else {
+                    alert('发送失败: ' + (result.error || '未知错误'));
+                }
+            } catch (e) {
+                alert('请求失败: ' + e.message);
+            } finally {
+                btn.textContent = originalText;
+                btn.disabled = false;
+            }
         }
 
         function showProcessLog(processId) {

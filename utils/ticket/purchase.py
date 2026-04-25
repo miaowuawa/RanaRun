@@ -14,37 +14,40 @@ console = Console()
 
 def check_ip_blocked(response: requests.Response, result: dict) -> bool:
     """
-    检查是否IP被风控
+    检查是否IP被风控 (ACL)
+    注意：必须是403状态码 + 包含acl/custom关键字才是ACL
+    只有403可能是登录过期或其他问题
     Args:
         response: HTTP响应
         result: 解析后的JSON结果
     Returns:
-        True: IP被风控, False: 正常
+        True: IP被ACL风控, False: 正常
     """
-    # 检查状态码是否为403
-    if response.status_code == 403:
-        return True
+    # 必须是403状态码
+    if response.status_code != 403:
+        return False
     
     # 检查返回内容中是否包含acl和custom关键字
     if isinstance(result, dict):
-        message = str(result.get("message", ""))
-        response_text = json.dumps(result, ensure_ascii=False)
+        message = str(result.get("message", "")).lower()
+        response_text = json.dumps(result, ensure_ascii=False).lower()
         
-        if "acl" in message.lower() or "custom" in message.lower():
-            return True
-        if "acl" in response_text.lower() and "custom" in response_text.lower():
+        # 必须同时包含acl和custom关键字
+        if ("acl" in message and "custom" in message) or \
+           ("acl" in response_text and "custom" in response_text):
             return True
     
     return False
 
 
-def wait_if_ip_blocked(response: requests.Response, result: dict, debug_mode: bool = False) -> bool:
+def wait_if_ip_blocked(response: requests.Response, result: dict, debug_mode: bool = False, notifier=None) -> bool:
     """
     如果IP被风控，等待10分钟后重试
     Args:
         response: HTTP响应
         result: 解析后的JSON结果
         debug_mode: 是否开启调试模式
+        notifier: 可选的通知器，用于发送ACL通知
     Returns:
         True: IP被风控已等待, False: 正常
     """
@@ -56,6 +59,13 @@ def wait_if_ip_blocked(response: requests.Response, result: dict, debug_mode: bo
         if debug_mode:
             console.print(f"[调试]响应状态码: {response.status_code}")
             console.print(f"[调试]响应内容: {json.dumps(result, ensure_ascii=False, indent=2)}")
+        
+        # 发送ACL通知
+        if notifier and hasattr(notifier, 'enabled') and notifier.enabled:
+            try:
+                notifier.notify_acl_blocked(wait_minutes=10)
+            except Exception:
+                pass  # 通知失败不影响主流程
         
         # 等待10分钟
         for i in range(600, 0, -1):
@@ -101,7 +111,7 @@ def submit_ticket_order(session: requests.Session, ticket_id: str, purchaser_id:
     return result, retry, should_stop
 
 
-def submit_ticket_order_with_details(session: requests.Session, ticket_id: str, purchaser_id: str, debug_mode: bool = False, count: int = 1) -> tuple[bool, bool, bool, dict]:
+def submit_ticket_order_with_details(session: requests.Session, ticket_id: str, purchaser_id: str, debug_mode: bool = False, count: int = 1, notifier=None) -> tuple[bool, bool, bool, dict]:
     """
     提交购票订单（增加响应提示处理、随机延迟），返回详细信息包括支付链接
     Args:
@@ -110,6 +120,7 @@ def submit_ticket_order_with_details(session: requests.Session, ticket_id: str, 
         purchaser_id: 购买者ID
         debug_mode: 是否开启调试模式
         count: 购买数量，默认为1
+        notifier: 可选的通知器，用于发送ACL通知
     Returns:
         (是否成功, 是否需要重试, 是否应该停止, 详细信息字典)
     """
@@ -151,7 +162,7 @@ def submit_ticket_order_with_details(session: requests.Session, ticket_id: str, 
             console.print(f"[dim][调试] HTTP状态码: {response.status_code}[/dim]")
             console.print(f"[dim][调试] 响应摘要: {str(result)[:200]}...[/dim]")
 
-        if wait_if_ip_blocked(response, result, debug_mode):
+        if wait_if_ip_blocked(response, result, debug_mode, notifier):
             return False, True, False, details  # 需要重试
 
         response.raise_for_status()
@@ -178,6 +189,10 @@ def submit_ticket_order_with_details(session: requests.Session, ticket_id: str, 
         elif "余票" in message:
             if debug_mode:
                 console.print(f"[yellow][调试][下单报错] 可用库存不足[/yellow]")
+            return False, True, False, details
+        elif "开票时间未到" in message or "未开始" in message or "时间" in message:
+            if debug_mode:
+                console.print(f"[yellow][调试][下单报错] 开票时间未到，继续重试...[/yellow]")
             return False, True, False, details
         elif result.get("isSuccess") == True:
             if debug_mode:

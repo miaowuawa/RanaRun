@@ -13,6 +13,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 from utils.env2sess import env_to_request_session
 from utils.ticket.purchase import submit_ticket_order_with_details
 from utils.ticket.check import get_ticket_type_list
+from utils.notification.yhchat import create_notifier_from_config
 
 
 def resale_worker(config: dict, process_id: str):
@@ -31,6 +32,11 @@ def resale_worker(config: dict, process_id: str):
         print(log_msg)
         with open(log_file, "a", encoding="utf-8") as f:
             f.write(log_msg + "\n")
+
+    # 初始化云湖通知器
+    notifier = create_notifier_from_config(config)
+    if notifier.enabled:
+        log("云湖通知已启用")
 
     try:
         log(f"回流模式进程 {process_id} 启动")
@@ -100,6 +106,15 @@ def resale_worker(config: dict, process_id: str):
                         if remainder > 0:
                             log(f"发现余票: {remainder} 张！")
 
+                            # 发送回流票命中通知
+                            try:
+                                if notifier.enabled:
+                                    event_name = target_ticket.get("eventName", "未知活动")
+                                    ticket_name = target_ticket.get("ticketName", "未知票种")
+                                    notifier.notify_resale_hit(event_name, ticket_name, event_id, ticket_id)
+                            except Exception:
+                                pass  # 通知失败不影响抢票
+
                             # 尝试下单
                             if purchaser_id_list:
                                 purchaser_id = purchaser_id_list[0]
@@ -107,7 +122,7 @@ def resale_worker(config: dict, process_id: str):
                                 purchaser_id = purchaser_ids
 
                             result, retry, should_stop, details = submit_ticket_order_with_details(
-                                session, ticket_id, purchaser_id, debug_mode, ticket_count
+                                session, ticket_id, purchaser_id, debug_mode, ticket_count, notifier
                             )
 
                             if result:
@@ -129,6 +144,16 @@ def resale_worker(config: dict, process_id: str):
                                             log(f"支付链接: {pay_url}")
                                     except Exception as e:
                                         log(f"支付链接生成失败: {e}")
+
+                                # 发送抢票成功通知
+                                try:
+                                    if notifier.enabled:
+                                        event_name = target_ticket.get("eventName", "未知活动")
+                                        ticket_name = target_ticket.get("ticketName", "未知票种")
+                                        notifier.notify_purchase_success(event_name, ticket_name, pay_url, order_info)
+                                except Exception:
+                                    pass  # 通知失败不影响抢票
+
                                 if stop_on_success:
                                     break
                             else:

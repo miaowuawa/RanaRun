@@ -22,6 +22,42 @@ def list_processes():
         return jsonify({"success": False, "error": str(e)}), 500
 
 
+@process_bp.route('/test_notification', methods=['POST'])
+def test_notification():
+    """测试云湖通知"""
+    try:
+        data = request.get_json()
+        token = data.get('token', '')
+        user_id = data.get('user_id', '')
+
+        if not token or not user_id:
+            return jsonify({"success": False, "error": "请填写Token和用户ID"}), 400
+
+        # 创建通知器并发送测试消息
+        from utils.notification.yhchat import YHChatNotifier
+        notifier = YHChatNotifier(token, user_id, 'user')
+
+        success = notifier.send_markdown(
+            "🧪 **云湖通知测试**\n\n"
+            "这是一条测试消息！\n\n"
+            "如果您收到此消息，说明云湖通知配置正确。\n\n"
+            "时间：" + __import__('datetime').datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            buttons=[[{
+                "text": "查看帮助",
+                "actionType": 1,
+                "url": "https://www.yhchat.com/document/400-410"
+            }]]
+        )
+
+        if success:
+            return jsonify({"success": True, "message": "测试消息已发送"})
+        else:
+            return jsonify({"success": False, "error": "发送失败，请检查Token和用户ID"}), 400
+
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
 @process_bp.route('/create', methods=['POST'])
 def create_process():
     """创建新进程"""
