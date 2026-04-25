@@ -157,6 +157,40 @@ def presale_worker(config: dict, process_id: str):
         time_offset = config.get("time_offset", 0)  # 时间偏移(秒)
         debug_mode = config.get("debug_mode", False)
         presale_mode = config.get("presale_mode", "merge")
+        # 猛攻模式配置
+        aggressive_mode = config.get("aggressive_mode", False)
+        aggressive_delay_ms = config.get("aggressive_delay", 50)  # 猛攻延迟(毫秒)
+        aggressive_count = config.get("aggressive_count", 20)  # 猛攻次数
+        
+        # 巨量代理池配置（优先使用传入的配置，如果没有则使用全局配置）
+        juliang_api_url = config.get("juliang_api_url", "")
+        if not juliang_api_url:
+            # 从全局配置获取
+            try:
+                from utils.config import get_juliang_api_url, get_juliang_config
+                juliang_config = get_juliang_config()
+                log(f"[调试] 全局巨量代理配置: enabled={juliang_config.get('enabled', False)}, api_url={juliang_config.get('api_url', '')[:50]}...")
+                juliang_api_url = get_juliang_api_url()
+                if juliang_api_url:
+                    log(f"[调试] 成功获取巨量代理API: {juliang_api_url[:50]}...")
+                else:
+                    log(f"[调试] 巨量代理未启用或API地址为空")
+            except Exception as e:
+                log(f"获取全局巨量代理配置失败: {e}")
+
+        # 初始化代理池
+        proxy_pool = None
+        if juliang_api_url:
+            try:
+                from utils.proxy.proxy_pool import get_proxy_pool
+                proxy_pool = get_proxy_pool(process_id, juliang_api_url)
+                log(f"[代理池] 已启动，缓存区目标大小: 3个代理")
+                # 等待代理池预热
+                time.sleep(2)
+                status = proxy_pool.get_status()
+                log(f"[代理池] 当前缓存状态: {status['valid_count']}/{status['target_size']} 个有效代理")
+            except Exception as e:
+                log(f"[代理池] 启动失败: {e}")
 
         if not ticket_id:
             log("错误: 未设置票种ID")
@@ -167,6 +201,10 @@ def presale_worker(config: dict, process_id: str):
         log(f"抢票延迟: {delay_ms}ms")
         log(f"爆发延迟: {burst_delay_ms}ms")
         log(f"时间偏移: {time_offset*1000:.2f}ms")
+        if aggressive_mode:
+            log(f"猛攻模式: 启用 (延迟{aggressive_delay_ms}ms, 次数{aggressive_count})")
+        if proxy_pool:
+            log(f"[代理池] 已启用，优先从缓存获取代理")
 
         # 解析购买者ID
         purchaser_id_list = [pid.strip() for pid in purchaser_ids.split(",") if pid.strip()]
@@ -190,14 +228,15 @@ def presale_worker(config: dict, process_id: str):
         # 初始化抢票循环变量
         order_count = 0
         success_count = 0  # 成功订单数（分离模式下可能有多单）
-        max_orders = 1000  # 最大尝试次数，防止无限循环
+        aggressive_remaining = 0  # 剩余猛攻次数
+        in_aggressive_mode = False  # 是否在猛攻模式中
 
         # 分离模式：需要抢ticket_count单；合并模式：只需成功1单
         target_success = ticket_count if presale_mode == "split" else 1
 
         log(f"目标：成功抢购 {target_success} 单")
 
-        while order_count < max_orders and success_count < target_success:
+        while success_count < target_success:
             try:
                 current_time = time.time()
 
@@ -205,7 +244,10 @@ def presale_worker(config: dict, process_id: str):
                 in_burst_mode = current_time < burst_mode_end_time
 
                 # 计算本次延迟
-                if in_burst_mode:
+                if in_aggressive_mode:
+                    delay = get_random_delay_ms(aggressive_delay_ms)
+                    mode_text = f"猛攻模式(剩余{aggressive_remaining}次)"
+                elif in_burst_mode:
                     delay = get_random_delay_ms(burst_delay_ms)
                     mode_text = "爆发模式"
                 else:
@@ -216,20 +258,70 @@ def presale_worker(config: dict, process_id: str):
 
                 time.sleep(delay)
 
+                # 检查是否需要从代理池获取新代理（预热好的代理）
+                if proxy_pool and (order_count % 5 == 0 or not session.proxies):  # 每5次请求或没有代理时，尝试获取缓存代理
+                    try:
+                        cached_proxy = proxy_pool.get_proxy()
+                        if cached_proxy:
+                            session.proxies = cached_proxy
+                            log(f"[代理池] 切换到缓存代理: {cached_proxy['http'][:40]}...")
+                    except Exception as e:
+                        log(f"[代理池] 获取代理失败: {e}")
+
                 # 提交订单
                 if presale_mode == "split" and purchaser_id_list:
                     purchaser_id = purchaser_id_list[success_count % len(purchaser_id_list)]
-                    result, retry, should_stop, details = submit_ticket_order_with_details(session, ticket_id, purchaser_id, debug_mode, 1, notifier)
+                    result, retry, should_stop, details = submit_ticket_order_with_details(session, ticket_id, purchaser_id, debug_mode, 1, notifier, juliang_api_url)
                 else:
-                    result, retry, should_stop, details = submit_ticket_order_with_details(session, ticket_id, purchaser_ids, debug_mode, ticket_count, notifier)
+                    result, retry, should_stop, details = submit_ticket_order_with_details(session, ticket_id, purchaser_ids, debug_mode, ticket_count, notifier, juliang_api_url)
 
                 order_count += 1
+                
+                # 检查是否应该停止（限购等情况）
+                if should_stop:
+                    message = details.get("message", "") if details else ""
+                    log(f"检测到限购或不可重试错误: {message}")
+                    log("停止抢票")
+                    break
+
+                # 检查是否需要切换代理（请求频繁或失败）
+                if proxy_pool and details:
+                    message = details.get("message", "")
+                    # 请求频繁、ACL、连接失败等情况都切换代理
+                    if any(kw in message for kw in ["频繁", "acl", "custom", "proxy", "连接"]):
+                        try:
+                            log(f"[代理池] 检测到'{message[:20]}...'，切换到新代理")
+                            new_proxy = proxy_pool.get_proxy()
+                            if new_proxy:
+                                session.proxies = new_proxy
+                                log(f"[代理池] 已切换到新代理: {new_proxy['http'][:40]}...")
+                        except Exception as e:
+                            log(f"[代理池] 切换代理失败: {e}")
+
+                # 检查是否需要进入猛攻模式（仅对通道拥挤触发）
+                message = details.get("message", "") if details else ""
+                if aggressive_mode and not in_aggressive_mode and not result:
+                    if "拥挤" in message:
+                        in_aggressive_mode = True
+                        aggressive_remaining = aggressive_count
+                        log(f"[猛攻模式] 检测到通道拥挤，启动猛攻模式！高速重试{aggressive_count}次")
+
+                # 如果在猛攻模式中，递减计数
+                if in_aggressive_mode:
+                    aggressive_remaining -= 1
+                    if aggressive_remaining <= 0:
+                        in_aggressive_mode = False
+                        log("[猛攻模式] 高速重试次数用完，恢复正常模式")
 
                 if result:
                     success_count += 1
                     pay_url = details.get("pay_url") if details else None
                     order_info = details.get("order_info") if details else None
                     log(f"第 {success_count}/{target_success} 单抢票成功！共尝试 {order_count} 次")
+                    if in_aggressive_mode:
+                        log("[猛攻模式] 下单成功，退出猛攻模式")
+                        in_aggressive_mode = False
+                        aggressive_remaining = 0
                     if order_info:
                         log(f"订单信息: {order_info}")
                     if pay_url:
@@ -261,6 +353,15 @@ def presale_worker(config: dict, process_id: str):
                         log("等待1秒后抢下一单...")
                         time.sleep(1)
                 else:
+                    # 检查是否是余票不足
+                    if "余票" in message:
+                        log(f"[余票不足] {message}")
+                        if in_aggressive_mode:
+                            in_aggressive_mode = False
+                            aggressive_remaining = 0
+                            log("[猛攻模式] 余票不足，退出猛攻模式")
+                        # 余票不足时继续尝试，因为可能会有回流票
+
                     if not retry:
                         log(f"无需重试，抢票失败 (尝试 {order_count} 次)")
                         if details and details.get("message"):
@@ -285,6 +386,15 @@ def presale_worker(config: dict, process_id: str):
         log(f"进程异常: {e}")
         import traceback
         log(traceback.format_exc())
+    finally:
+        # 停止代理池
+        try:
+            if proxy_pool:
+                from utils.proxy.proxy_pool import stop_proxy_pool
+                stop_proxy_pool(process_id)
+                log("[代理池] 已停止")
+        except:
+            pass
 
 
 if __name__ == "__main__":

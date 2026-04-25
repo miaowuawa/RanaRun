@@ -5,10 +5,12 @@ Werkzeug==3.1.8
 
 # HTTP请求
 requests==2.33.1
+requests[socks]==2.33.1
 urllib3==2.6.3
 certifi==2026.2.25
 charset-normalizer==3.4.7
 idna==3.11
+PySocks==1.7.1
 
 # 终端UI
 rich==14.3.3

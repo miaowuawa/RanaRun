@@ -63,6 +63,44 @@ def resale_worker(config: dict, process_id: str):
         refresh_delay = config.get("refresh_delay", 1.0)
         stop_on_success = config.get("stop_on_success", True)
         debug_mode = config.get("debug_mode", False)
+        # 回流模式配置
+        resale_mode = config.get("resale_mode", "merge")  # 合并/分离模式
+        order_delay = config.get("order_delay", 100)  # 下单延迟(毫秒)
+        max_order_attempts = config.get("max_order_attempts", 10)  # 有票时最大下单次数
+        # 猛攻模式配置
+        aggressive_mode = config.get("aggressive_mode", False)
+        aggressive_delay_ms = config.get("aggressive_delay", 50)  # 猛攻延迟(毫秒)
+        aggressive_count = config.get("aggressive_count", 20)  # 猛攻次数
+        
+        # 巨量代理池配置（优先使用传入的配置，如果没有则使用全局配置）
+        juliang_api_url = config.get("juliang_api_url", "")
+        if not juliang_api_url:
+            # 从全局配置获取
+            try:
+                from utils.config import get_juliang_api_url, get_juliang_config
+                juliang_config = get_juliang_config()
+                log(f"[调试] 全局巨量代理配置: enabled={juliang_config.get('enabled', False)}, api_url={juliang_config.get('api_url', '')[:50]}...")
+                juliang_api_url = get_juliang_api_url()
+                if juliang_api_url:
+                    log(f"[调试] 成功获取巨量代理API: {juliang_api_url[:50]}...")
+                else:
+                    log(f"[调试] 巨量代理未启用或API地址为空")
+            except Exception as e:
+                log(f"获取全局巨量代理配置失败: {e}")
+
+        # 初始化代理池
+        proxy_pool = None
+        if juliang_api_url:
+            try:
+                from utils.proxy.proxy_pool import get_proxy_pool
+                proxy_pool = get_proxy_pool(process_id, juliang_api_url)
+                log(f"[代理池] 已启动，缓存区目标大小: 3个代理")
+                # 等待代理池预热
+                time.sleep(2)
+                status = proxy_pool.get_status()
+                log(f"[代理池] 当前缓存状态: {status['valid_count']}/{status['target_size']} 个有效代理")
+            except Exception as e:
+                log(f"[代理池] 启动失败: {e}")
 
         if not event_id or not ticket_id:
             log("错误: 未设置活动ID或票种ID")
@@ -71,22 +109,148 @@ def resale_worker(config: dict, process_id: str):
         log(f"活动ID: {event_id}")
         log(f"票种ID: {ticket_id}")
         log(f"刷新延迟: {refresh_delay}秒")
+        log(f"下单延迟: {order_delay}ms")
+        log(f"抢票模式: {'分离模式' if resale_mode == 'split' else '合并模式'}")
+        log(f"最大下单次数: {max_order_attempts}次")
+        if aggressive_mode:
+            log(f"猛攻模式: 启用 (延迟{aggressive_delay_ms}ms, 次数{aggressive_count})")
+        if proxy_pool:
+            log(f"[代理池] 已启用，优先从缓存获取代理")
 
         # 解析购买者ID
         purchaser_id_list = [pid.strip() for pid in purchaser_ids.split(",") if pid.strip()]
 
         # 检测循环
         check_count = 0
+        success_count = 0  # 成功订单数（分离模式下可能有多单）
         success = False
         current_stock = 0
+        aggressive_remaining = 0  # 剩余猛攻次数
+        in_aggressive_mode = False  # 是否在猛攻模式中
+        order_attempt_count = 0  # 当前有票时的下单尝试次数
+        in_order_mode = False  # 是否在有票下单模式中
 
+        # 分离模式：需要抢ticket_count单；合并模式：只需成功1单
+        target_success = ticket_count if resale_mode == "split" else 1
+
+        log(f"目标：成功抢购 {target_success} 单")
         log("开始检测余票...")
 
-        while not success:
+        while success_count < target_success:
             try:
                 check_count += 1
 
-                # 获取票种信息
+                # 如果在猛攻模式中，跳过余票检测直接下单
+                # 检查是否需要从代理池获取新代理
+                if proxy_pool and (check_count % 5 == 0 or not session.proxies):  # 每5次请求或没有代理时
+                    try:
+                        cached_proxy = proxy_pool.get_proxy()
+                        if cached_proxy:
+                            session.proxies = cached_proxy
+                            log(f"[代理池] 切换到缓存代理: {cached_proxy['http'][:40]}...")
+                    except Exception as e:
+                        log(f"[代理池] 获取代理失败: {e}")
+
+                if in_aggressive_mode:
+                    # 猛攻模式：高速重试下单
+                    aggressive_remaining -= 1
+                    mode_text = f"猛攻模式(剩余{aggressive_remaining}次)"
+                    log(f"[{mode_text}] 第{check_count}次尝试下单...")
+
+                    # 分离模式：使用不同的购买者
+                    if resale_mode == "split" and purchaser_id_list:
+                        purchaser_id = purchaser_id_list[success_count % len(purchaser_id_list)]
+                    elif purchaser_id_list:
+                        purchaser_id = purchaser_id_list[0]
+                    else:
+                        purchaser_id = purchaser_ids
+
+                    result, retry, should_stop, details = submit_ticket_order_with_details(
+                        session, ticket_id, purchaser_id, debug_mode, 1 if resale_mode == "split" else ticket_count, notifier, juliang_api_url
+                    )
+
+                    # 猛攻模式下：只有请求频繁/ACL等情况才切换代理，通道拥挤不换代理
+                    if proxy_pool and not result and details:
+                        message = details.get("message", "")
+                        if any(kw in message for kw in ["频繁", "acl", "custom", "proxy", "连接"]):
+                            try:
+                                new_proxy = proxy_pool.get_proxy()
+                                if new_proxy:
+                                    session.proxies = new_proxy
+                                    log(f"[代理池-猛攻] 检测到'{message[:20]}...'，快速切换到新代理: {new_proxy['http'][:40]}...")
+                            except Exception as e:
+                                log(f"[代理池-猛攻] 切换代理失败: {e}")
+
+                    # 检查猛攻模式是否结束
+                    message = details.get("message", "") if details else ""
+
+                    # 检查是否应该停止（限购等情况）
+                    if should_stop:
+                        log(f"[猛攻模式] 检测到限购或不可重试错误: {message}")
+                        log("[猛攻模式] 停止抢票")
+                        in_aggressive_mode = False
+                        aggressive_remaining = 0
+                        break  # 跳出主循环
+
+                    if result:
+                        # 下单成功
+                        success_count += 1
+                        pay_url = details.get("pay_url") if details else None
+                        order_info = details.get("order_info") if details else None
+                        log(f"[猛攻模式] 第 {success_count}/{target_success} 单抢票成功！共检测 {check_count} 次")
+                        in_aggressive_mode = False
+                        aggressive_remaining = 0
+                        order_attempt_count = 0  # 重置下单计数
+                        in_order_mode = False
+                        if order_info:
+                            log(f"订单信息: {order_info}")
+                        if pay_url:
+                            log(f"支付链接: {pay_url}")
+                        else:
+                            # 如果没有支付链接，尝试生成
+                            try:
+                                from utils.payment.alipay_convert import AiliPay
+                                alipay = AiliPay()
+                                pay_url = alipay.convert_alipay_to_h5(order_info)
+                                if pay_url:
+                                    log(f"支付链接: {pay_url}")
+                            except Exception as e:
+                                log(f"支付链接生成失败: {e}")
+
+                        # 发送抢票成功通知
+                        try:
+                            if notifier.enabled:
+                                notifier.notify_purchase_success("回流抢票", f"票种ID: {ticket_id}", pay_url, order_info)
+                        except Exception:
+                            pass  # 通知失败不影响抢票
+
+                        # 如果已达到目标，退出循环
+                        if success_count >= target_success:
+                            break
+
+                        # 分离模式下，抢下一单前稍微延迟
+                        if resale_mode == "split":
+                            log("等待1秒后抢下一单...")
+                            time.sleep(1)
+                        elif stop_on_success:
+                            break
+                    elif "余票" in message:
+                        # 余票不足，退出猛攻模式
+                        log(f"[猛攻模式] 余票不足: {message}")
+                        in_aggressive_mode = False
+                        aggressive_remaining = 0
+                        log("[猛攻模式] 退出猛攻模式，恢复正常检测")
+                    elif aggressive_remaining <= 0:
+                        # 猛攻次数用完
+                        log("[猛攻模式] 高速重试次数用完，恢复正常检测")
+                        in_aggressive_mode = False
+
+                    # 猛攻模式延迟
+                    if in_aggressive_mode:
+                        time.sleep(aggressive_delay_ms / 1000 + random.uniform(-0.01, 0.01))
+                    continue  # 跳过后续正常检测
+
+                # 正常模式：获取票种信息
                 ticket_data = get_ticket_type_list(session, event_id, refresh_delay)
 
                 if ticket_data and "ticketTypeList" in ticket_data:
@@ -104,32 +268,87 @@ def resale_worker(config: dict, process_id: str):
                         current_stock = remainder
 
                         if remainder > 0:
-                            log(f"发现余票: {remainder} 张！")
+                            # 进入有票下单模式
+                            if not in_order_mode:
+                                in_order_mode = True
+                                order_attempt_count = 0
+                                log(f"发现余票: {remainder} 张！开始下单模式（最大{max_order_attempts}次）")
 
-                            # 发送回流票命中通知
-                            try:
-                                if notifier.enabled:
-                                    event_name = target_ticket.get("eventName", "未知活动")
-                                    ticket_name = target_ticket.get("ticketName", "未知票种")
-                                    notifier.notify_resale_hit(event_name, ticket_name, event_id, ticket_id)
-                            except Exception:
-                                pass  # 通知失败不影响抢票
+                                # 发送回流票命中通知
+                                try:
+                                    if notifier.enabled:
+                                        event_name = target_ticket.get("eventName", "未知活动")
+                                        ticket_name = target_ticket.get("ticketName", "未知票种")
+                                        notifier.notify_resale_hit(event_name, ticket_name, event_id, ticket_id)
+                                except Exception:
+                                    pass  # 通知失败不影响抢票
 
-                            # 尝试下单
-                            if purchaser_id_list:
+                            # 检查是否超过最大尝试次数
+                            if order_attempt_count >= max_order_attempts:
+                                log(f"[下单模式] 已达到最大尝试次数({max_order_attempts}次)，返回余票检测")
+                                in_order_mode = False
+                                order_attempt_count = 0
+                                continue
+
+                            # 下单延迟
+                            actual_delay = order_delay / 1000 + random.uniform(-0.01, 0.01)
+                            actual_delay = max(0.01, actual_delay)
+                            log(f"[下单模式] 第{order_attempt_count + 1}/{max_order_attempts}次尝试，延迟{actual_delay*1000:.0f}ms")
+                            time.sleep(actual_delay)
+
+                            order_attempt_count += 1
+
+                            # 分离模式：使用不同的购买者
+                            if resale_mode == "split" and purchaser_id_list:
+                                purchaser_id = purchaser_id_list[success_count % len(purchaser_id_list)]
+                            elif purchaser_id_list:
                                 purchaser_id = purchaser_id_list[0]
                             else:
                                 purchaser_id = purchaser_ids
 
                             result, retry, should_stop, details = submit_ticket_order_with_details(
-                                session, ticket_id, purchaser_id, debug_mode, ticket_count, notifier
+                                session, ticket_id, purchaser_id, debug_mode, 1 if resale_mode == "split" else ticket_count, notifier, juliang_api_url
                             )
 
+                            # 检查是否需要切换代理（请求频繁或失败）
+                            if proxy_pool and details:
+                                message = details.get("message", "")
+                                # 请求频繁、ACL、连接失败等情况都切换代理
+                                if any(kw in message for kw in ["频繁", "acl", "custom", "proxy", "连接"]):
+                                    try:
+                                        log(f"[代理池] 检测到'{message[:20]}...'，切换到新代理")
+                                        new_proxy = proxy_pool.get_proxy()
+                                        if new_proxy:
+                                            session.proxies = new_proxy
+                                            log(f"[代理池] 已切换到新代理: {new_proxy['http'][:40]}...")
+                                    except Exception as e:
+                                        log(f"[代理池] 切换代理失败: {e}")
+
+                            # 检查是否需要进入猛攻模式（仅对通道拥挤触发）
+                            message = details.get("message", "") if details else ""
+                            
+                            # 检查是否应该停止（限购等情况）
+                            if should_stop:
+                                log(f"[下单模式] 检测到限购或不可重试错误: {message}")
+                                log("[下单模式] 停止抢票")
+                                break  # 跳出主循环
+                            
+                            if aggressive_mode and not result and "拥挤" in message:
+                                in_aggressive_mode = True
+                                aggressive_remaining = aggressive_count
+                                in_order_mode = False  # 退出下单模式，进入猛攻模式
+                                order_attempt_count = 0
+                                log(f"[猛攻模式] 检测到通道拥挤，启动猛攻模式！高速重试{aggressive_count}次")
+                                continue  # 跳过正常延迟，直接进入猛攻模式
+
                             if result:
-                                success = True
+                                # 下单成功
+                                success_count += 1
                                 pay_url = details.get("pay_url") if details else None
                                 order_info = details.get("order_info") if details else None
-                                log(f"抢票成功！共检测 {check_count} 次")
+                                log(f"[下单模式] 第 {success_count}/{target_success} 单抢票成功！共检测 {check_count} 次，下单{order_attempt_count}次")
+                                order_attempt_count = 0
+                                in_order_mode = False
                                 if order_info:
                                     log(f"订单信息: {order_info}")
                                 if pay_url:
@@ -154,11 +373,29 @@ def resale_worker(config: dict, process_id: str):
                                 except Exception:
                                     pass  # 通知失败不影响抢票
 
-                                if stop_on_success:
+                                # 如果已达到目标，退出循环
+                                if success_count >= target_success:
                                     break
-                            else:
-                                log("下单失败，继续检测...")
+
+                                # 分离模式下，抢下一单前稍微延迟
+                                if resale_mode == "split":
+                                    log("等待1秒后抢下一单...")
+                                    time.sleep(1)
+                                elif stop_on_success:
+                                    break
+                            elif "余票" in message:
+                                # 余票不足，退出下单模式
+                                log(f"[下单模式] 余票不足: {message}")
+                                log("[下单模式] 退出下单模式，返回余票检测")
+                                in_order_mode = False
+                                order_attempt_count = 0
+                            # 否则继续下单模式，直到达到最大次数
                         else:
+                            # 余票为0，退出下单模式
+                            if in_order_mode:
+                                log("[下单模式] 余票已售罄，退出下单模式")
+                                in_order_mode = False
+                                order_attempt_count = 0
                             if check_count % 10 == 0:
                                 log(f"第 {check_count} 次检测，暂无余票")
                     else:
@@ -173,13 +410,26 @@ def resale_worker(config: dict, process_id: str):
                 log(f"检测异常: {e}")
                 time.sleep(refresh_delay)
 
-        if not success:
+        if success_count == 0:
             log(f"抢票结束，未成功。共检测 {check_count} 次")
+        elif success_count < target_success:
+            log(f"抢票结束，部分成功。成功 {success_count}/{target_success} 单，共检测 {check_count} 次")
+        else:
+            log(f"抢票成功！共成功 {success_count} 单，共检测 {check_count} 次")
 
     except Exception as e:
         log(f"进程异常: {e}")
         import traceback
         log(traceback.format_exc())
+    finally:
+        # 停止代理池
+        try:
+            if proxy_pool:
+                from utils.proxy.proxy_pool import stop_proxy_pool
+                stop_proxy_pool(process_id)
+                log("[代理池] 已停止")
+        except:
+            pass
 
 
 if __name__ == "__main__":

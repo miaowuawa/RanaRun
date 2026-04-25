@@ -213,7 +213,14 @@
                         <input type="checkbox" id="order-debug-mode">
                         <label for="order-debug-mode" style="margin-bottom: 0;">调试模式</label>
                     </div>
-                    <button class="btn btn-primary" onclick="executeOrderTest()">执行测试</button>
+                    <div class="form-group checkbox-group">
+                        <input type="checkbox" id="order-use-juliang">
+                        <label for="order-use-juliang" style="margin-bottom: 0;">使用巨量代理（需在进程管理页面配置）</label>
+                    </div>
+                    <div class="actions">
+                        <button class="btn btn-secondary" onclick="testProxyLatency()">测试代理延迟</button>
+                        <button class="btn btn-primary" onclick="executeOrderTest()">执行测试</button>
+                    </div>
                 </div>
 
                 <div class="card">
@@ -290,6 +297,22 @@
                         <input type="number" class="form-control" id="presale-burst-delay" value="70" min="10">
                         <small style="color: #666;">开抢后前2秒使用的延迟，建议值：60-80ms</small>
                     </div>
+                    <div class="form-group checkbox-group">
+                        <input type="checkbox" id="presale-aggressive-mode" onchange="toggleAggressiveConfig('presale')">
+                        <label for="presale-aggressive-mode" style="margin-bottom: 0;">启用猛攻模式</label>
+                    </div>
+                    <div id="presale-aggressive-config" style="display: none;">
+                        <div class="form-group">
+                            <label>猛攻延迟 (毫秒)</label>
+                            <input type="number" class="form-control" id="presale-aggressive-delay" value="50" min="10">
+                            <small style="color: #666;">遇到频繁/拥挤时的高速重试延迟，建议值：30-80ms</small>
+                        </div>
+                        <div class="form-group">
+                            <label>猛攻次数</label>
+                            <input type="number" class="form-control" id="presale-aggressive-count" value="20" min="5" max="100">
+                            <small style="color: #666;">高速重试次数，达到次数后恢复正常速度</small>
+                        </div>
+                    </div>
                     <div class="form-group">
                         <label>时间偏移 (毫秒)</label>
                         <div style="display: flex; gap: 5px;">
@@ -343,8 +366,53 @@
                         <input type="hidden" id="resale-purchaser-ids">
                     </div>
                     <div class="form-group">
-                        <label>刷新延迟 (秒)</label>
-                        <input type="number" class="form-control" id="resale-refresh-delay" value="1" min="0.1" step="0.1">
+                        <label>抢票模式</label>
+                        <div style="display: flex; gap: 10px;">
+                            <label style="display: flex; align-items: center; gap: 5px;">
+                                <input type="radio" name="resale-order-mode" value="merge" checked>
+                                <span>合并下单</span>
+                            </label>
+                            <label style="display: flex; align-items: center; gap: 5px;">
+                                <input type="radio" name="resale-order-mode" value="split">
+                                <span>分离下单</span>
+                            </label>
+                        </div>
+                        <small style="color: #666;">分离模式：每张票分开下单，适合抢多张票给不同的人</small>
+                    </div>
+                    <div class="form-group">
+                        <label>购买数量</label>
+                        <input type="number" class="form-control" id="resale-count" value="1" min="1" onchange="validatePurchaserCount('resale')">
+                    </div>
+                    <div class="form-group">
+                        <label>刷新延迟 (毫秒)</label>
+                        <input type="number" class="form-control" id="resale-refresh-delay" value="1000" min="100" step="100">
+                        <small style="color: #666;">1000毫秒 = 1秒</small>
+                    </div>
+                    <div class="form-group">
+                        <label>下单延迟 (毫秒)</label>
+                        <input type="number" class="form-control" id="resale-order-delay" value="100" min="10">
+                        <small style="color: #666;">发现余票后每次下单的间隔，建议值：50-200ms</small>
+                    </div>
+                    <div class="form-group">
+                        <label>最大下单次数</label>
+                        <input type="number" class="form-control" id="resale-max-attempts" value="10" min="1" max="50">
+                        <small style="color: #666;">发现余票后最多尝试下单次数，超过则返回检测余票</small>
+                    </div>
+                    <div class="form-group checkbox-group">
+                        <input type="checkbox" id="resale-aggressive-mode" onchange="toggleAggressiveConfig('resale')">
+                        <label for="resale-aggressive-mode" style="margin-bottom: 0;">启用猛攻模式</label>
+                    </div>
+                    <div id="resale-aggressive-config" style="display: none;">
+                        <div class="form-group">
+                            <label>猛攻延迟 (毫秒)</label>
+                            <input type="number" class="form-control" id="resale-aggressive-delay" value="50" min="10">
+                            <small style="color: #666;">遇到频繁/拥挤时的高速重试延迟，建议值：30-80ms</small>
+                        </div>
+                        <div class="form-group">
+                            <label>猛攻次数</label>
+                            <input type="number" class="form-control" id="resale-aggressive-count" value="20" min="5" max="100">
+                            <small style="color: #666;">高速重试次数，达到次数后恢复正常速度</small>
+                        </div>
                     </div>
                     <div class="form-group checkbox-group">
                         <input type="checkbox" id="resale-debug-mode">
@@ -376,6 +444,23 @@
                 <div class="actions">
                     <button class="btn btn-secondary" onclick="saveYHChatConfig()">保存配置</button>
                     <button class="btn btn-primary" onclick="testYHChatNotification()">测试通知</button>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-title">巨量代理配置（全局）</div>
+                <div class="form-group">
+                    <label>巨量代理API地址</label>
+                    <input type="text" class="form-control" id="juliang-api-url" placeholder="https://api.juliangip.com/...">
+                    <small style="color: #666;">从巨量代理控制台获取的API提取链接（全局配置，所有进程共享）</small>
+                </div>
+                <div class="form-group checkbox-group">
+                    <input type="checkbox" id="juliang-enabled">
+                    <label for="juliang-enabled" style="margin-bottom: 0;">启用巨量代理（全局生效）</label>
+                </div>
+                <div class="actions">
+                    <button class="btn btn-secondary" onclick="saveJuliangConfig()">保存配置</button>
+                    <button class="btn btn-primary" onclick="testJuliangProxy()">测试代理</button>
                 </div>
             </div>
 
@@ -555,6 +640,7 @@
             loadProcessList();
             loadCities();
             loadYHChatConfig();
+            loadJuliangConfig();
 
             // 爆发模式切换
             document.getElementById('presale-burst-mode').addEventListener('change', function() {
@@ -1066,6 +1152,7 @@
             const purchaserIds = document.getElementById('order-purchaser-ids').value;
             const count = parseInt(document.getElementById('order-count').value) || 1;
             const debugMode = document.getElementById('order-debug-mode').checked;
+            const useJuliang = document.getElementById('order-use-juliang').checked;
             const orderMode = document.querySelector('input[name="order-mode"]:checked').value;
             if (!envFile) { alert('请选择环境'); return; }
             if (!ticketId) { alert('请选择票种'); return; }
@@ -1074,11 +1161,12 @@
             if (count !== selectedCount) { alert(`购买数量(${count})与选择人数(${selectedCount})不一致！`); return; }
             const container = document.getElementById('order-result');
             container.innerHTML = '<p>测试中...</p>';
-            const result = await apiRequest('/api/order/test', { method: 'POST', body: JSON.stringify({ env_file: envFile, ticket_id: ticketId, purchaser_ids: purchaserIds, count, debug_mode: debugMode, order_mode: orderMode }) });
+            const result = await apiRequest('/api/order/test', { method: 'POST', body: JSON.stringify({ env_file: envFile, ticket_id: ticketId, purchaser_ids: purchaserIds, count, debug_mode: debugMode, order_mode: orderMode, use_juliang: useJuliang }) });
             if (result.success) {
                 const data = result.data;
                 const hasSuccess = data.result || (data.results && data.results.some(r => r.result));
                 let html = `<div class="alert ${hasSuccess ? 'alert-success' : 'alert-warning'}">`;
+                html += `<p><strong>巨量代理:</strong> ${data.use_juliang ? '已使用' : '未使用'}</p>`;
                 if (data.mode === 'combined') {
                     html += `<p><strong>模式:</strong> 合并下单</p><p><strong>结果:</strong> ${data.result ? '成功' : '失败'}</p>`;
                     if (data.retry) html += '<p>需要重试</p>';
@@ -1104,6 +1192,60 @@
                 html += '</div>';
                 container.innerHTML = html;
             } else container.innerHTML = `<div class="alert alert-error">${result.error}</div>`;
+        }
+
+        // 测试代理延迟
+        async function testProxyLatency() {
+            const useJuliang = document.getElementById('order-use-juliang').checked;
+            const container = document.getElementById('order-result');
+            container.innerHTML = '<p>正在测试代理延迟...</p>';
+
+            const btn = document.querySelector('button[onclick="testProxyLatency()"]');
+            const originalText = btn.textContent;
+            btn.textContent = '测试中...';
+            btn.disabled = true;
+
+            try {
+                const result = await apiRequest('/api/order/test_proxy_latency', {
+                    method: 'POST',
+                    body: JSON.stringify({ use_juliang: useJuliang })
+                });
+
+                if (result.success) {
+                    const data = result.data;
+                    // 根据状态码确定显示样式
+                    const isErrorStatus = data.status_code !== 200 && typeof data.status_code === 'number';
+                    const alertClass = isErrorStatus ? 'alert-warning' : 'alert-success';
+                    const statusColor = data.status_code === 200 ? '#28a745' : 
+                                       data.status_code === 'TIMEOUT' ? '#dc3545' :
+                                       data.status_code === 'PROXY_ERROR' ? '#dc3545' :
+                                       data.status_code === 'ERROR' ? '#dc3545' : '#ffc107';
+
+                    let html = `<div class="${alertClass}">`;
+                    html += `<p><strong>测试目标:</strong> ${data.url}</p>`;
+                    html += `<p><strong>使用代理:</strong> ${data.use_proxy ? '是' : '否'}</p>`;
+                    if (data.proxy) {
+                        html += `<p><strong>代理:</strong> ${data.proxy}</p>`;
+                    }
+                    html += `<p><strong>HTTP状态码:</strong> <span style="color: ${statusColor}; font-weight: bold;">${data.status_code}</span></p>`;
+                    html += `<p><strong>延迟:</strong> <span style="font-size: 24px; color: ${data.latency_ms < 500 ? '#28a745' : data.latency_ms < 1000 ? '#ffc107' : '#dc3545'};">${data.latency_ms}ms</span></p>`;
+                    html += `<p>${data.message}</p>`;
+                    html += '</div>';
+                    container.innerHTML = html;
+                } else {
+                    // API未加载或服务器错误
+                    let html = '<div class="alert alert-error">';
+                    html += `<p><strong>API请求失败:</strong> ${result.error || '服务器错误'}</p>`;
+                    html += '<p style="color: #dc3545;">请检查Web服务是否已重启以加载新API接口</p>';
+                    html += '</div>';
+                    container.innerHTML = html;
+                }
+            } catch (e) {
+                container.innerHTML = `<div class="alert alert-error">请求失败: ${e.message}</div>`;
+            } finally {
+                btn.textContent = originalText;
+                btn.disabled = false;
+            }
         }
 
         // 抢票模式 - 加载票种
@@ -1182,6 +1324,15 @@
             validatePurchaserCount(mode);
         }
 
+        // 切换猛攻模式配置显示/隐藏
+        function toggleAggressiveConfig(mode) {
+            const checkbox = document.getElementById(`${mode}-aggressive-mode`);
+            const configDiv = document.getElementById(`${mode}-aggressive-config`);
+            if (checkbox && configDiv) {
+                configDiv.style.display = checkbox.checked ? 'block' : 'none';
+            }
+        }
+
         // 验证购买数量与选择人数是否一致
         function validatePurchaserCount(mode) {
             let countInput, purchaserIdsInput, selectedInfo;
@@ -1258,13 +1409,17 @@
             const timeOffset = parseFloat(document.getElementById('presale-time-offset').value) || 0;
             const debugMode = document.getElementById('presale-debug-mode').checked;
             const orderMode = document.querySelector('input[name="presale-order-mode"]:checked')?.value || 'merge';
+            // 猛攻模式配置
+            const aggressiveMode = document.getElementById('presale-aggressive-mode')?.checked || false;
+            const aggressiveDelay = aggressiveMode ? (parseInt(document.getElementById('presale-aggressive-delay')?.value) || 50) : 50;
+            const aggressiveCount = aggressiveMode ? (parseInt(document.getElementById('presale-aggressive-count')?.value) || 20) : 20;
             if (!envFile || !ticketId || !purchaserIds) { alert('请填写完整配置'); return; }
             const selectedCount = purchaserIds.split(',').filter(id => id.trim()).length;
             if (count !== selectedCount) { alert(`购买数量(${count})与选择人数(${selectedCount})不一致！`); return; }
 
-            // 合并云湖配置
+            // 合并云湖配置（巨量代理配置改为全局配置，从后端自动获取）
             const yhchatConfig = getYHChatConfig();
-            const processConfig = { env_file: envFile, ticket_id: ticketId, purchaser_ids: purchaserIds, count, delay, burst_delay: burstDelay, time_offset: timeOffset / 1000, debug_mode: debugMode, presale_mode: orderMode, ...yhchatConfig };
+            const processConfig = { env_file: envFile, ticket_id: ticketId, purchaser_ids: purchaserIds, count, delay, burst_delay: burstDelay, time_offset: timeOffset / 1000, debug_mode: debugMode, presale_mode: orderMode, aggressive_mode: aggressiveMode, aggressive_delay: aggressiveDelay, aggressive_count: aggressiveCount, ...yhchatConfig };
 
             const result = await apiRequest('/api/process/create', { method: 'POST', body: JSON.stringify({ name, mode: 'presale', config: processConfig }) });
             if (result.success) {
@@ -1282,15 +1437,23 @@
             const ticketId = document.getElementById('resale-ticket-id').value;
             const purchaserIds = document.getElementById('resale-purchaser-ids').value;
             const count = parseInt(document.getElementById('resale-count').value) || 1;
-            const refreshDelay = parseFloat(document.getElementById('resale-refresh-delay').value) || 1;
+            const refreshDelayMs = parseInt(document.getElementById('resale-refresh-delay').value) || 1000;
+            const refreshDelay = refreshDelayMs / 1000; // 转换为秒
+            const orderDelay = parseInt(document.getElementById('resale-order-delay')?.value) || 100;
+            const maxOrderAttempts = parseInt(document.getElementById('resale-max-attempts')?.value) || 10;
             const debugMode = document.getElementById('resale-debug-mode').checked;
+            const orderMode = document.querySelector('input[name="resale-order-mode"]:checked')?.value || 'merge';
+            // 猛攻模式配置
+            const aggressiveMode = document.getElementById('resale-aggressive-mode')?.checked || false;
+            const aggressiveDelay = aggressiveMode ? (parseInt(document.getElementById('resale-aggressive-delay')?.value) || 50) : 50;
+            const aggressiveCount = aggressiveMode ? (parseInt(document.getElementById('resale-aggressive-count')?.value) || 20) : 20;
             if (!envFile || !eventId || !ticketId || !purchaserIds) { alert('请填写完整配置'); return; }
             const selectedCount = purchaserIds.split(',').filter(id => id.trim()).length;
             if (count !== selectedCount) { alert(`购买数量(${count})与选择人数(${selectedCount})不一致！`); return; }
 
-            // 合并云湖配置
+            // 合并云湖配置（巨量代理配置改为全局配置，从后端自动获取）
             const yhchatConfig = getYHChatConfig();
-            const processConfig = { env_file: envFile, event_id: eventId, ticket_id: ticketId, purchaser_ids: purchaserIds, count, refresh_delay: refreshDelay, debug_mode: debugMode, ...yhchatConfig };
+            const processConfig = { env_file: envFile, event_id: eventId, ticket_id: ticketId, purchaser_ids: purchaserIds, ticket_count: count, refresh_delay: refreshDelay, order_delay: orderDelay, max_order_attempts: maxOrderAttempts, resale_mode: orderMode, debug_mode: debugMode, aggressive_mode: aggressiveMode, aggressive_delay: aggressiveDelay, aggressive_count: aggressiveCount, ...yhchatConfig };
 
             const result = await apiRequest('/api/process/create', { method: 'POST', body: JSON.stringify({ name, mode: 'resale', config: processConfig }) });
             if (result.success) {
@@ -1372,6 +1535,36 @@
             };
         }
 
+        // 获取巨量代理配置（从后端全局配置）
+        async function getJuliangConfigAsync() {
+            try {
+                const result = await apiRequest('/api/process/juliang_config');
+                if (result.success && result.data.effective_api_url) {
+                    return {
+                        juliang_api_url: result.data.effective_api_url
+                    };
+                }
+            } catch (e) {
+                console.log('获取巨量代理配置失败:', e);
+            }
+            return {};
+        }
+
+        // 同步版本的getJuliangConfig（用于非异步场景，从页面元素读取）
+        function getJuliangConfig() {
+            const enabled = document.getElementById('juliang-enabled')?.checked || false;
+            if (!enabled) return {};
+
+            const apiUrl = document.getElementById('juliang-api-url')?.value?.trim() || '';
+            if (!apiUrl) {
+                return {};
+            }
+
+            return {
+                juliang_api_url: apiUrl
+            };
+        }
+
         // 保存云湖配置到本地存储
         function saveYHChatConfig() {
             const config = {
@@ -1424,6 +1617,78 @@
                     alert('测试消息已发送，请检查云湖APP是否收到');
                 } else {
                     alert('发送失败: ' + (result.error || '未知错误'));
+                }
+            } catch (e) {
+                alert('请求失败: ' + e.message);
+            } finally {
+                btn.textContent = originalText;
+                btn.disabled = false;
+            }
+        }
+
+        // 保存巨量代理配置到后端（全局配置）
+        async function saveJuliangConfig() {
+            const config = {
+                enabled: document.getElementById('juliang-enabled')?.checked || false,
+                api_url: document.getElementById('juliang-api-url')?.value?.trim() || ''
+            };
+
+            try {
+                const result = await apiRequest('/api/process/juliang_config', {
+                    method: 'POST',
+                    body: JSON.stringify(config)
+                });
+
+                if (result.success) {
+                    alert('巨量代理配置已保存（全局配置）');
+                } else {
+                    alert('保存失败: ' + (result.error || '未知错误'));
+                }
+            } catch (e) {
+                alert('保存失败: ' + e.message);
+            }
+        }
+
+        // 加载巨量代理配置（从后端全局配置）
+        async function loadJuliangConfig() {
+            try {
+                const result = await apiRequest('/api/process/juliang_config');
+                if (result.success) {
+                    const config = result.data;
+                    if (config.api_url) {
+                        document.getElementById('juliang-api-url').value = config.api_url;
+                    }
+                    document.getElementById('juliang-enabled').checked = config.enabled || false;
+                }
+            } catch (e) {
+                console.log('加载巨量代理配置失败:', e);
+            }
+        }
+
+        // 测试巨量代理
+        async function testJuliangProxy() {
+            const apiUrl = document.getElementById('juliang-api-url')?.value?.trim();
+
+            if (!apiUrl) {
+                alert('请先填写巨量代理API地址');
+                return;
+            }
+
+            const btn = document.querySelector('button[onclick="testJuliangProxy()"]');
+            const originalText = btn.textContent;
+            btn.textContent = '测试中...';
+            btn.disabled = true;
+
+            try {
+                const result = await apiRequest('/api/process/test_juliang_proxy', {
+                    method: 'POST',
+                    body: JSON.stringify({ api_url: apiUrl })
+                });
+
+                if (result.success) {
+                    alert('代理测试成功！获取到的代理: ' + result.data.proxy);
+                } else {
+                    alert('代理测试失败: ' + (result.error || '未知错误'));
                 }
             } catch (e) {
                 alert('请求失败: ' + e.message);

@@ -331,3 +331,129 @@ def get_purchasers():
         })
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
+
+
+@process_bp.route('/test_juliang_proxy', methods=['POST'])
+def test_juliang_proxy():
+    """测试巨量代理"""
+    try:
+        data = request.get_json()
+        api_url = data.get('api_url', '')
+
+        if not api_url:
+            return jsonify({"success": False, "error": "请填写巨量代理API地址"}), 400
+
+        # 测试获取代理
+        from utils.proxy.juliang_proxy import JuliangProxyManager
+        manager = JuliangProxyManager(api_url)
+        proxy = manager.fetch_proxy()
+
+        if proxy:
+            return jsonify({
+                "success": True,
+                "data": {
+                    "proxy": proxy['http'][:50] + "..." if len(proxy['http']) > 50 else proxy['http']
+                }
+            })
+        else:
+            return jsonify({"success": False, "error": "获取代理失败，请检查API地址是否正确"}), 400
+
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@process_bp.route('/global_config', methods=['GET'])
+def get_global_config():
+    """获取全局配置"""
+    try:
+        from utils.config import load_global_config
+        config = load_global_config()
+        return jsonify({"success": True, "data": config})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@process_bp.route('/global_config', methods=['POST'])
+def save_global_config():
+    """保存全局配置"""
+    try:
+        data = request.get_json()
+        from utils.config import save_global_config as save_config
+        success = save_config(data)
+        if success:
+            return jsonify({"success": True})
+        else:
+            return jsonify({"success": False, "error": "保存配置失败"}), 500
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@process_bp.route('/juliang_config', methods=['GET'])
+def get_juliang_config_api():
+    """获取巨量代理配置"""
+    try:
+        from utils.config import get_juliang_config, get_juliang_api_url
+        config = get_juliang_config()
+        return jsonify({
+            "success": True,
+            "data": {
+                "api_url": config.get("api_url", ""),
+                "enabled": config.get("enabled", False),
+                "effective_api_url": get_juliang_api_url()  # 实际有效的API地址
+            }
+        })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@process_bp.route('/juliang_config', methods=['POST'])
+def save_juliang_config_api():
+    """保存巨量代理配置"""
+    try:
+        data = request.get_json()
+        api_url = data.get('api_url', '')
+        enabled = data.get('enabled', False)
+
+        from utils.config import set_juliang_config
+        success = set_juliang_config(api_url, enabled)
+
+        if success:
+            return jsonify({"success": True})
+        else:
+            return jsonify({"success": False, "error": "保存配置失败"}), 500
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@process_bp.route('/yhchat_config', methods=['GET'])
+def get_yhchat_config_api():
+    """获取云湖配置"""
+    try:
+        from utils.config import get_yhchat_config
+        config = get_yhchat_config()
+        return jsonify({
+            "success": True,
+            "data": config
+        })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@process_bp.route('/yhchat_config', methods=['POST'])
+def save_yhchat_config_api():
+    """保存云湖配置"""
+    try:
+        data = request.get_json()
+        token = data.get('token', '')
+        user_id = data.get('user_id', '')
+        enabled = data.get('enabled', False)
+
+        from utils.config import set_yhchat_config
+        success = set_yhchat_config(token, user_id, enabled)
+
+        if success:
+            return jsonify({"success": True})
+        else:
+            return jsonify({"success": False, "error": "保存配置失败"}), 500
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
