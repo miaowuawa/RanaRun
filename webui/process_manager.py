@@ -153,6 +153,26 @@ class SnipeProcessManager:
                         process_info.status = 'stopped'
 
                     process_info.end_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                else:
+                    # 进程仍在运行，检查是否在等待中
+                    log_file = os.path.join(webui_dir, "logs", f"{process_info.mode}_{process_id}.log")
+                    if os.path.exists(log_file):
+                        try:
+                            with open(log_file, 'r', encoding='utf-8') as f:
+                                log_content = f.read()
+                                # 检查是否有等待中状态
+                                if '[状态] 等待中' in log_content:
+                                    # 提取剩余时间
+                                    import re
+                                    match = re.search(r'还剩 ([\d.]+) 秒', log_content)
+                                    if match:
+                                        process_info.message = f'等待开售中，还剩 {match.group(1)} 秒'
+                                    else:
+                                        process_info.message = '等待开售中'
+                                elif '[状态] 等待结束' in log_content:
+                                    process_info.message = '正在抢票中'
+                        except:
+                            pass
 
         return list(self.processes.values())
 

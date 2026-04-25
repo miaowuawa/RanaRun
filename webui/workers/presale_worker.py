@@ -49,13 +49,14 @@ def get_ticket_info(session, ticket_id, log_func):
         return None
 
 
-def wait_for_sale_start(sell_start_time_ms, time_offset, log_func):
+def wait_for_sale_start(sell_start_time_ms, time_offset, log_func, log_file):
     """
     等待到开售时间
     Args:
         sell_start_time_ms: 开售时间（毫秒时间戳）
         time_offset: 时间偏移（秒）
         log_func: 日志函数
+        log_file: 日志文件路径，用于写入状态标记
     Returns:
         实际开售时间（秒时间戳，考虑偏移）
     """
@@ -82,7 +83,7 @@ def wait_for_sale_start(sell_start_time_ms, time_offset, log_func):
     wait_seconds = adjusted_sell_start - current_time
 
     if wait_seconds > 0:
-        log_func(f"等待开售，还需 {wait_seconds:.1f} 秒...")
+        log_func(f"[状态] 等待中 - 离开售还有 {wait_seconds:.1f} 秒")
 
         # 分段等待，避免长时间阻塞
         while wait_seconds > 0:
@@ -97,11 +98,11 @@ def wait_for_sale_start(sell_start_time_ms, time_offset, log_func):
             current_time = time.time()
             wait_seconds = adjusted_sell_start - current_time
 
-            # 每10秒输出一次日志
+            # 每10秒输出一次日志和状态标记
             if wait_seconds > 0 and int(wait_seconds) % 10 == 0:
-                log_func(f"等待中... 还剩 {wait_seconds:.1f} 秒")
+                log_func(f"[状态] 等待中 - 还剩 {wait_seconds:.1f} 秒")
 
-        log_func("开售时间到！开始抢票")
+        log_func("[状态] 等待结束 - 开售时间到！开始抢票")
     else:
         log_func(f"开售时间已过 {abs(wait_seconds):.1f} 秒，立即开始抢票")
 
@@ -188,11 +189,15 @@ def presale_worker(config: dict, process_id: str):
             log(f"票种名称: {ticket_name}")
 
         # 等待到开售时间
-        start_time = wait_for_sale_start(sell_start_time_ms, time_offset, log)
+        start_time = wait_for_sale_start(sell_start_time_ms, time_offset, log, log_file)
         burst_mode_end_time = start_time + 2  # 爆发模式持续2秒
 
         log(f"开始抢票... 前2秒使用爆发模式({burst_delay_ms}ms)，之后使用正常模式({delay_ms}ms)")
         log(f"实际开抢时间: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(start_time))}")
+
+        # 初始化抢票循环变量
+        order_count = 0
+        success = False
 
         while order_count < total_orders and not success:
             try:
