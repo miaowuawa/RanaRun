@@ -425,6 +425,105 @@ def save_juliang_config_api():
         return jsonify({"success": False, "error": str(e)}), 500
 
 
+@process_bp.route('/proxy_config', methods=['GET'])
+def get_proxy_config_api():
+    """获取代理配置（支持巨量和闪臣）"""
+    try:
+        from utils.config import get_proxy_config, get_current_proxy_config
+        config = get_proxy_config()
+        current = get_current_proxy_config()
+        return jsonify({
+            "success": True,
+            "data": {
+                "type": config.get("type", "none"),
+                "juliang": config.get("juliang", {}),
+                "shanchen": config.get("shanchen", {}),
+                "current": current
+            }
+        })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@process_bp.route('/proxy_config', methods=['POST'])
+def save_proxy_config_api():
+    """保存代理配置（支持巨量和闪臣）"""
+    try:
+        data = request.get_json()
+        proxy_type = data.get('proxy_type', 'none')
+        juliang_api_url = data.get('juliang_api_url', '')
+        shanchen_api_key = data.get('shanchen_api_key', '')
+        shanchen_time = data.get('shanchen_time', 1)
+        shanchen_count = data.get('shanchen_count', 3)
+        shanchen_province = data.get('shanchen_province', '')
+        shanchen_city = data.get('shanchen_city', '')
+
+        from utils.config import set_proxy_config
+        success = set_proxy_config(
+            proxy_type=proxy_type,
+            juliang_api_url=juliang_api_url,
+            shanchen_api_key=shanchen_api_key,
+            shanchen_time=shanchen_time,
+            shanchen_count=shanchen_count,
+            shanchen_province=shanchen_province,
+            shanchen_city=shanchen_city
+        )
+
+        if success:
+            return jsonify({"success": True})
+        else:
+            return jsonify({"success": False, "error": "保存配置失败"}), 500
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@process_bp.route('/test_proxy', methods=['POST'])
+def test_proxy():
+    """测试代理（支持巨量和闪臣）"""
+    try:
+        data = request.get_json()
+        proxy_type = data.get('proxy_type', '')
+        config = data.get('config', {})
+
+        if proxy_type == 'juliang':
+            api_url = config.get('api_url', '')
+            if not api_url:
+                return jsonify({"success": False, "error": "请填写巨量代理API地址"}), 400
+
+            from utils.proxy.juliang_proxy import JuliangProxyManager
+            manager = JuliangProxyManager(api_url)
+            proxy = manager.fetch_proxy()
+
+        elif proxy_type == 'shanchen':
+            api_key = config.get('api_key', '')
+            time_minutes = config.get('time_minutes', 1)
+            count = config.get('count', 1)
+            province = config.get('province', '')
+            city = config.get('city', '')
+
+            if not api_key:
+                return jsonify({"success": False, "error": "请填写闪臣代理API密钥"}), 400
+
+            from utils.proxy.shanchen_proxy import ShanchenProxyManager
+            manager = ShanchenProxyManager(api_key, time_minutes, count, province, city)
+            proxy = manager.fetch_proxy()
+        else:
+            return jsonify({"success": False, "error": "未知的代理类型"}), 400
+
+        if proxy:
+            return jsonify({
+                "success": True,
+                "data": {
+                    "proxy": proxy['http'][:50] + "..." if len(proxy['http']) > 50 else proxy['http']
+                }
+            })
+        else:
+            return jsonify({"success": False, "error": "获取代理失败，请检查配置是否正确"}), 400
+
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
 @process_bp.route('/yhchat_config', methods=['GET'])
 def get_yhchat_config_api():
     """获取云湖配置"""

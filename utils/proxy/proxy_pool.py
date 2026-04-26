@@ -1,6 +1,7 @@
 """
 代理IP池管理模块
 支持缓存、测速、异步维护，确保抢票时快速获取可用代理
+支持多种代理源：巨量、闪臣
 """
 import requests
 import time
@@ -40,6 +41,7 @@ class ProxyPool:
     - 缓存3个最优代理
     - 异步维护缓存区
     - 快速切换IP
+    - 支持多种代理源：juliang(巨量)、shanchen(闪臣)
     """
 
     # 配置参数
@@ -49,8 +51,18 @@ class ProxyPool:
     TEST_TIMEOUT = 5  # 测试超时（秒）
     MIN_VALID_LATENCY = 3000  # 最大可接受延迟（毫秒）
 
-    def __init__(self, api_url: str = ""):
-        self.api_url = api_url
+    def __init__(self, proxy_type: str = "none", config: Dict[str, Any] = None):
+        """
+        初始化代理池
+        Args:
+            proxy_type: 代理类型 (none, juliang, shanchen)
+            config: 配置字典
+                - juliang: {api_url: str}
+                - shanchen: {api_key: str, time_minutes: int, count: int}
+        """
+        self.proxy_type = proxy_type
+        self.config = config or {}
+
         self._cache: List[ProxyInfo] = []  # 代理缓存区
         self._lock = threading.RLock()  # 线程锁
         self._stop_event = threading.Event()  # 停止事件
@@ -59,11 +71,15 @@ class ProxyPool:
 
     def start(self):
         """启动异步维护线程"""
+        if self.proxy_type == "none":
+            print("[代理池] 代理已禁用，不启动维护线程")
+            return
+
         if self._maintain_thread is None or not self._maintain_thread.is_alive():
             self._stop_event.clear()
             self._maintain_thread = threading.Thread(target=self._maintain_loop, daemon=True)
             self._maintain_thread.start()
-            print(f"[代理池] 异步维护线程已启动")
+            print(f"[代理池] 异步维护线程已启动，代理类型: {self.proxy_type}")
 
     def stop(self):
         """停止异步维护线程"""
@@ -74,11 +90,18 @@ class ProxyPool:
 
     def is_configured(self) -> bool:
         """检查是否已配置"""
-        return bool(self.api_url and self.api_url.strip())
+        if self.proxy_type == "none":
+            return False
+        if self.proxy_type == "juliang":
+            return bool(self.config.get("api_url", "").strip())
+        if self.proxy_type == "shanchen":
+            return bool(self.config.get("api_key", "").strip())
+        return False
 
-    def set_api_url(self, api_url: str):
-        """设置API地址"""
-        self.api_url = api_url
+    def set_config(self, proxy_type: str, config: Dict[str, Any]):
+        """设置配置"""
+        self.proxy_type = proxy_type
+        self.config = config or {}
 
     def _maintain_loop(self):
         """异步维护循环"""
@@ -138,29 +161,38 @@ class ProxyPool:
 
     def _fetch_proxies(self, count: int) -> List[ProxyInfo]:
         """从API获取代理"""
+        if self.proxy_type == "juliang":
+            return self._fetch_juliang_proxies(count)
+        elif self.proxy_type == "shanchen":
+            return self._fetch_shanchen_proxies(count)
+        else:
+            return []
+
+    def _fetch_juliang_proxies(self, count: int) -> List[ProxyInfo]:
+        """从巨量API获取代理"""
         proxies = []
-        if not self.is_configured():
+        api_url = self.config.get("api_url", "")
+        if not api_url:
             return proxies
 
         try:
             # 添加随机参数避免缓存
-            url = self.api_url
-            if "?" in url:
-                url += f"&_t={int(time.time() * 1000)}"
+            if "?" in api_url:
+                url = api_url + f"&_t={int(time.time() * 1000)}"
             else:
-                url += f"?_t={int(time.time() * 1000)}"
+                url = api_url + f"?_t={int(time.time() * 1000)}"
 
             response = requests.get(url, timeout=10)
             response.raise_for_status()
 
             data = response.json()
             if data.get("code") != 200:
-                print(f"[代理池] API返回错误: {data.get('msg', '未知错误')}")
+                print(f"[代理池-巨量] API返回错误: {data.get('msg', '未知错误')}")
                 return proxies
 
             proxy_list = data.get("data", {}).get("proxy_list", [])
             if not proxy_list:
-                print("[代理池] 未获取到代理列表")
+                print("[代理池-巨量] 未获取到代理列表")
                 return proxies
 
             # 转换为ProxyInfo对象
@@ -184,11 +216,95 @@ class ProxyPool:
                 )
                 proxies.append(proxy)
 
-            print(f"[代理池] 获取到 {len(proxies)} 个代理")
+            print(f"[代理池-巨量] 获取到 {len(proxies)} 个代理")
             return proxies
 
         except Exception as e:
-            print(f"[代理池] 获取代理失败: {e}")
+            print(f"[代理池-巨量] 获取代理失败: {e}")
+            return proxies
+
+    def _fetch_shanchen_proxies(self, count: int) -> List[ProxyInfo]:
+        """从闪臣API获取代理"""
+        proxies = []
+        api_key = self.config.get("api_key", "")
+        time_minutes = self.config.get("time_minutes", 1)
+        fetch_count = self.config.get("count", 3)
+        province = self.config.get("province", "")
+        city = self.config.get("city", "")
+
+        if not api_key:
+            return proxies
+
+        try:
+            url = "https://sch.shanchendaili.com/api.html"
+            params = {
+                "action": "get_ip",
+                "key": api_key,
+                "time": time_minutes,
+                "count": fetch_count,
+                "type": "json",
+                "only": 0
+            }
+
+            # 添加省份和城市参数
+            if province:
+                params["province"] = province
+            if city:
+                params["city"] = city
+
+            response = requests.get(url, params=params, timeout=10)
+            response.raise_for_status()
+
+            data = response.json()
+
+            # 检查状态码
+            if data.get("status") != "0":
+                error_msg = data.get("info", f"未知错误(状态码:{data.get('status')})")
+                print(f"[代理池-闪臣] API返回错误: {error_msg}")
+                return proxies
+
+            proxy_list = data.get("list", [])
+            if not proxy_list:
+                print("[代理池-闪臣] 未获取到代理列表")
+                return proxies
+
+            # 解析过期时间
+            expire_str = data.get("expire", "")
+            expire_time = time.time() + time_minutes * 60
+            if expire_str:
+                try:
+                    from datetime import datetime
+                    expire_dt = datetime.strptime(expire_str, "%Y-%m-%d %H:%M:%S")
+                    expire_time = expire_dt.timestamp()
+                except:
+                    pass
+
+            remain_seconds = int(expire_time - time.time())
+
+            # 转换为ProxyInfo对象
+            for proxy_info in proxy_list[:count]:
+                ip = proxy_info.get("sever")
+                port = proxy_info.get("port")
+
+                if not ip or not port:
+                    continue
+
+                # 闪臣是SOCKS5代理，无认证
+                proxy_url = f"socks5://{ip}:{port}"
+                proxy = ProxyInfo(
+                    http=proxy_url,
+                    https=proxy_url,
+                    expire_time=expire_time,
+                    remain_seconds=remain_seconds,
+                    last_check_time=time.time()
+                )
+                proxies.append(proxy)
+
+            print(f"[代理池-闪臣] 获取到 {len(proxies)} 个代理，有效期{remain_seconds}秒")
+            return proxies
+
+        except Exception as e:
+            print(f"[代理池-闪臣] 获取代理失败: {e}")
             return proxies
 
     def _test_proxies_latency(self, proxies: List[ProxyInfo]) -> List[ProxyInfo]:
@@ -234,6 +350,9 @@ class ProxyPool:
         获取一个可用代理（从缓存区）
         返回: 代理字典或None
         """
+        if self.proxy_type == "none":
+            return None
+
         with self._lock:
             # 清理无效/过期代理
             self._cache = [p for p in self._cache if p.is_valid and not p.is_expired]
@@ -293,9 +412,11 @@ class ProxyPool:
         with self._lock:
             valid_count = sum(1 for p in self._cache if p.is_valid and not p.is_expired)
             return {
+                "proxy_type": self.proxy_type,
                 "cache_size": len(self._cache),
                 "valid_count": valid_count,
                 "target_size": self.CACHE_SIZE,
+                "configured": self.is_configured(),
                 "proxies": [
                     {
                         "latency_ms": p.latency_ms,
@@ -312,15 +433,31 @@ class ProxyPool:
 _proxy_pools: Dict[str, ProxyPool] = {}
 
 
-def get_proxy_pool(process_id: str = "default", api_url: str = "") -> ProxyPool:
-    """获取代理池实例（每个进程独立）"""
+def get_proxy_pool(process_id: str = "default", proxy_type: str = "none",
+                   config: Dict[str, Any] = None) -> Optional[ProxyPool]:
+    """
+    获取代理池实例（每个进程独立）
+    Args:
+        process_id: 进程ID
+        proxy_type: 代理类型 (none, juliang, shanchen)
+        config: 配置字典
+    Returns:
+        ProxyPool实例或None（如果proxy_type为none）
+    """
     global _proxy_pools
+
+    # 如果代理类型为none，返回None
+    if proxy_type == "none":
+        return None
+
     if process_id not in _proxy_pools:
-        pool = ProxyPool(api_url)
+        pool = ProxyPool(proxy_type, config)
         pool.start()
         _proxy_pools[process_id] = pool
-    elif api_url:
-        _proxy_pools[process_id].set_api_url(api_url)
+    else:
+        # 更新配置
+        _proxy_pools[process_id].set_config(proxy_type, config)
+
     return _proxy_pools[process_id]
 
 
@@ -338,3 +475,28 @@ def stop_all_proxy_pools():
     for pool in _proxy_pools.values():
         pool.stop()
     _proxy_pools.clear()
+
+
+def get_proxy_manager(proxy_type: str, config: Dict[str, Any] = None):
+    """
+    获取代理管理器（用于即时获取代理，不经过代理池）
+    Args:
+        proxy_type: 代理类型
+        config: 配置字典
+    Returns:
+        代理管理器实例
+    """
+    if proxy_type == "juliang":
+        from .juliang_proxy import get_juliang_manager
+        api_url = config.get("api_url", "") if config else ""
+        return get_juliang_manager(api_url)
+    elif proxy_type == "shanchen":
+        from .shanchen_proxy import get_shanchen_manager
+        api_key = config.get("api_key", "") if config else ""
+        time_minutes = config.get("time_minutes", 1) if config else 1
+        count = config.get("count", 3) if config else 3
+        province = config.get("province", "") if config else ""
+        city = config.get("city", "") if config else ""
+        return get_shanchen_manager(api_key, time_minutes, count, province, city)
+    else:
+        return None

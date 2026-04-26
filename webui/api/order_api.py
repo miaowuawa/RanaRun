@@ -38,13 +38,38 @@ def test_order():
 
         session = env_to_request_session(env)
 
-        # 如果启用巨量代理，获取代理URL
+        # 获取全局代理配置
+        from utils.config import get_current_proxy_config
+        proxy_config = get_current_proxy_config()
+        proxy_type = proxy_config.get("type", "none")
+
+        # 如果启用了代理，获取并设置代理
         juliang_api_url = ""
-        if use_juliang:
-            from utils.config import get_juliang_api_url
-            juliang_api_url = get_juliang_api_url()
-            if not juliang_api_url:
-                return jsonify({"success": False, "error": "巨量代理未配置或已禁用，请先在进程管理页面配置"}), 400
+        if use_juliang and proxy_type != "none":
+            if proxy_type == "juliang":
+                juliang_api_url = proxy_config.get("api_url", "")
+                if not juliang_api_url:
+                    return jsonify({"success": False, "error": "巨量代理未配置或已禁用，请先在进程管理页面配置"}), 400
+                # 获取巨量代理并设置到session
+                from utils.proxy.juliang_proxy import get_juliang_manager
+                manager = get_juliang_manager(juliang_api_url)
+                proxy = manager.fetch_proxy()
+                if proxy:
+                    session.proxies = proxy
+            elif proxy_type == "shanchen":
+                api_key = proxy_config.get("api_key", "")
+                time_minutes = proxy_config.get("time_minutes", 1)
+                count_proxy = proxy_config.get("count", 1)
+                province = proxy_config.get("province", "")
+                city = proxy_config.get("city", "")
+                if not api_key:
+                    return jsonify({"success": False, "error": "闪臣代理未配置或已禁用，请先在进程管理页面配置"}), 400
+                # 获取闪臣代理并设置到session
+                from utils.proxy.shanchen_proxy import get_shanchen_manager
+                manager = get_shanchen_manager(api_key, time_minutes, count_proxy, province, city)
+                proxy = manager.fetch_proxy()
+                if proxy:
+                    session.proxies = proxy
 
         # 处理购买者ID
         if order_mode == 'combined':
@@ -57,7 +82,8 @@ def test_order():
                     "retry": retry,
                     "should_stop": should_stop,
                     "mode": "combined",
-                    "use_juliang": use_juliang,
+                    "use_proxy": use_juliang and proxy_type != "none",
+                    "proxy_type": proxy_type if use_juliang else "none",
                     "pay_url": details.get("pay_url"),
                     "order_info": details.get("order_info"),
                     "message": details.get("message")
@@ -88,7 +114,8 @@ def test_order():
                 "data": {
                     "results": results,
                     "mode": "separate",
-                    "use_juliang": use_juliang,
+                    "use_proxy": use_juliang and proxy_type != "none",
+                    "proxy_type": proxy_type if use_juliang else "none",
                     "total": len(purchaser_list),
                     "success_count": sum(1 for r in results if r["result"])
                 }
@@ -145,10 +172,10 @@ def get_purchasers():
 
 @order_bp.route('/test_proxy_latency', methods=['POST'])
 def test_proxy_latency():
-    """测试代理IP访问cp.allcpp.cn的延迟"""
+    """测试代理IP访问cp.allcpp.cn的延迟（支持巨量和闪臣）"""
     try:
         data = request.get_json()
-        use_juliang = data.get('use_juliang', False)
+        use_juliang = data.get('use_juliang', False)  # 兼容旧参数
 
         import requests
         import time
@@ -156,21 +183,36 @@ def test_proxy_latency():
         # 准备session
         session = requests.Session()
 
-        # 如果使用巨量代理
+        # 从全局配置获取代理
+        from utils.config import get_current_proxy_config
+        proxy_config = get_current_proxy_config()
+        proxy_type = proxy_config.get("type", "none") if not use_juliang else "juliang"
+
         proxy_info = None
-        if use_juliang:
-            from utils.config import get_juliang_api_url
-            from utils.proxy.juliang_proxy import get_juliang_manager
+        if proxy_type != "none":
+            if proxy_type == "juliang":
+                from utils.proxy.juliang_proxy import get_juliang_manager
+                api_url = proxy_config.get("api_url", "") if not use_juliang else data.get('juliang_api_url', '')
+                if not api_url:
+                    return jsonify({"success": False, "error": "巨量代理未配置或已禁用"}), 400
+                manager = get_juliang_manager(api_url)
+                proxy = manager.fetch_proxy()
+            elif proxy_type == 'shanchen':
+                from utils.proxy.shanchen_proxy import get_shanchen_manager
+                api_key = proxy_config.get("api_key", "")
+                time_minutes = proxy_config.get("time_minutes", 1)
+                count = proxy_config.get("count", 1)
+                province = proxy_config.get("province", "")
+                city = proxy_config.get("city", "")
+                if not api_key:
+                    return jsonify({"success": False, "error": "闪臣代理未配置或已禁用"}), 400
+                manager = get_shanchen_manager(api_key, time_minutes, count, province, city)
+                proxy = manager.fetch_proxy()
+            else:
+                return jsonify({"success": False, "error": "代理类型不支持"}), 400
 
-            api_url = get_juliang_api_url()
-            if not api_url:
-                return jsonify({"success": False, "error": "巨量代理未配置或已禁用"}), 400
-
-            # 获取代理
-            manager = get_juliang_manager(api_url)
-            proxy = manager.fetch_proxy()
             if not proxy:
-                return jsonify({"success": False, "error": "获取巨量代理失败"}), 400
+                return jsonify({"success": False, "error": f"获取{proxy_type}代理失败"}), 400
 
             session.proxies = proxy
             proxy_info = proxy.get('http', '')
@@ -181,7 +223,6 @@ def test_proxy_latency():
 
         start_time = time.time()
         status_code = None
-        error_msg = None
 
         try:
             response = session.get(url, timeout=timeout, headers={
@@ -190,11 +231,11 @@ def test_proxy_latency():
             elapsed_ms = int((time.time() - start_time) * 1000)
             status_code = response.status_code
 
-            # 不管返回什么状态码都算成功，只要能连上
             return jsonify({
                 "success": True,
                 "data": {
-                    "use_proxy": use_juliang,
+                    "use_proxy": proxy_type != "none",
+                    "proxy_type": proxy_type,
                     "proxy": proxy_info[:50] + "..." if proxy_info and len(proxy_info) > 50 else proxy_info,
                     "url": url,
                     "latency_ms": elapsed_ms,
@@ -205,9 +246,10 @@ def test_proxy_latency():
         except requests.exceptions.Timeout:
             elapsed_ms = int((time.time() - start_time) * 1000)
             return jsonify({
-                "success": True,  # 超时也算有响应，只是慢
+                "success": True,
                 "data": {
-                    "use_proxy": use_juliang,
+                    "use_proxy": proxy_type != "none",
+                    "proxy_type": proxy_type,
                     "proxy": proxy_info[:50] + "..." if proxy_info and len(proxy_info) > 50 else proxy_info,
                     "url": url,
                     "latency_ms": elapsed_ms,
@@ -218,9 +260,10 @@ def test_proxy_latency():
         except requests.exceptions.ProxyError as e:
             elapsed_ms = int((time.time() - start_time) * 1000)
             return jsonify({
-                "success": True,  # 代理错误也算有响应
+                "success": True,
                 "data": {
-                    "use_proxy": use_juliang,
+                    "use_proxy": proxy_type != "none",
+                    "proxy_type": proxy_type,
                     "proxy": proxy_info[:50] + "..." if proxy_info and len(proxy_info) > 50 else proxy_info,
                     "url": url,
                     "latency_ms": elapsed_ms,
@@ -231,9 +274,10 @@ def test_proxy_latency():
         except Exception as e:
             elapsed_ms = int((time.time() - start_time) * 1000)
             return jsonify({
-                "success": True,  # 任何响应都算成功
+                "success": True,
                 "data": {
-                    "use_proxy": use_juliang,
+                    "use_proxy": proxy_type != "none",
+                    "proxy_type": proxy_type,
                     "proxy": proxy_info[:50] + "..." if proxy_info and len(proxy_info) > 50 else proxy_info,
                     "url": url,
                     "latency_ms": elapsed_ms,

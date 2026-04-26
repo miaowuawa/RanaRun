@@ -72,35 +72,43 @@ def resale_worker(config: dict, process_id: str):
         aggressive_delay_ms = config.get("aggressive_delay", 50)  # 猛攻延迟(毫秒)
         aggressive_count = config.get("aggressive_count", 20)  # 猛攻次数
         
-        # 巨量代理池配置（优先使用传入的配置，如果没有则使用全局配置）
-        juliang_api_url = config.get("juliang_api_url", "")
-        if not juliang_api_url:
+        # 代理池配置（优先使用传入的配置，如果没有则使用全局配置）
+        proxy_type = config.get("proxy_type", "none")
+        proxy_config = config.get("proxy_config", {})
+
+        if proxy_type == "none":
             # 从全局配置获取
             try:
-                from utils.config import get_juliang_api_url, get_juliang_config
-                juliang_config = get_juliang_config()
-                log(f"[调试] 全局巨量代理配置: enabled={juliang_config.get('enabled', False)}, api_url={juliang_config.get('api_url', '')[:50]}...")
-                juliang_api_url = get_juliang_api_url()
-                if juliang_api_url:
-                    log(f"[调试] 成功获取巨量代理API: {juliang_api_url[:50]}...")
-                else:
-                    log(f"[调试] 巨量代理未启用或API地址为空")
+                from utils.config import get_current_proxy_config
+                current_proxy = get_current_proxy_config()
+                proxy_type = current_proxy.get("type", "none")
+                proxy_config = current_proxy.get("config", {})
+                if proxy_type != "none":
+                    log(f"[代理] 使用全局配置: 类型={proxy_type}")
             except Exception as e:
-                log(f"获取全局巨量代理配置失败: {e}")
+                log(f"获取全局代理配置失败: {e}")
 
         # 初始化代理池
         proxy_pool = None
-        if juliang_api_url:
+        if proxy_type != "none":
             try:
                 from utils.proxy.proxy_pool import get_proxy_pool
-                proxy_pool = get_proxy_pool(process_id, juliang_api_url)
-                log(f"[代理池] 已启动，缓存区目标大小: 3个代理")
-                # 等待代理池预热
-                time.sleep(2)
-                status = proxy_pool.get_status()
-                log(f"[代理池] 当前缓存状态: {status['valid_count']}/{status['target_size']} 个有效代理")
+                proxy_pool = get_proxy_pool(process_id, proxy_type, proxy_config)
+                if proxy_pool:
+                    log(f"[代理池] 已启动，类型={proxy_type}，缓存区目标大小: 3个代理")
+                    # 等待代理池预热
+                    time.sleep(2)
+                    status = proxy_pool.get_status()
+                    log(f"[代理池] 当前缓存状态: {status['valid_count']}/{status['target_size']} 个有效代理")
+                else:
+                    log(f"[代理] 代理已禁用或未配置")
             except Exception as e:
                 log(f"[代理池] 启动失败: {e}")
+
+        # 兼容旧版本：获取巨量代理API URL用于下单函数
+        juliang_api_url = ""
+        if proxy_type == "juliang":
+            juliang_api_url = proxy_config.get("api_url", "")
 
         if not event_id or not ticket_id:
             log("错误: 未设置活动ID或票种ID")

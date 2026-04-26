@@ -448,19 +448,65 @@
             </div>
 
             <div class="card">
-                <div class="card-title">巨量代理配置（全局）</div>
+                <div class="card-title">代理配置（全局）</div>
+
+                <!-- 代理类型选择 -->
                 <div class="form-group">
-                    <label>巨量代理API地址</label>
-                    <input type="text" class="form-control" id="juliang-api-url" placeholder="https://api.juliangip.com/...">
-                    <small style="color: #666;">从巨量代理控制台获取的API提取链接（全局配置，所有进程共享）</small>
+                    <label>代理类型</label>
+                    <select class="form-control" id="proxy-type" onchange="onProxyTypeChange()">
+                        <option value="none">不启用代理</option>
+                        <option value="juliang">巨量代理</option>
+                        <option value="shanchen">闪臣代理</option>
+                    </select>
+                    <small style="color: #666;">选择要使用的代理服务商</small>
                 </div>
-                <div class="form-group checkbox-group">
-                    <input type="checkbox" id="juliang-enabled">
-                    <label for="juliang-enabled" style="margin-bottom: 0;">启用巨量代理（全局生效）</label>
+
+                <!-- 巨量代理配置 -->
+                <div id="juliang-config" style="display: none;">
+                    <div class="form-group">
+                        <label>巨量代理API地址</label>
+                        <input type="text" class="form-control" id="juliang-api-url" placeholder="https://api.juliangip.com/...">
+                        <small style="color: #666;">从巨量代理控制台获取的API提取链接</small>
+                    </div>
                 </div>
+
+                <!-- 闪臣代理配置 -->
+                <div id="shanchen-config" style="display: none;">
+                    <div class="form-group">
+                        <label>闪臣代理API密钥</label>
+                        <input type="text" class="form-control" id="shanchen-api-key" placeholder="输入闪臣代理API密钥">
+                        <small style="color: #666;">从闪臣代理控制台获取的API密钥</small>
+                    </div>
+                    <div class="form-group">
+                        <label>代理时长（分钟）</label>
+                        <select class="form-control" id="shanchen-time">
+                            <option value="1">1分钟</option>
+                            <option value="3">3分钟</option>
+                            <option value="5">5分钟</option>
+                            <option value="10">10分钟</option>
+                        </select>
+                        <small style="color: #666;">代理IP有效期（建议1-3分钟）</small>
+                    </div>
+                    <div class="form-group">
+                        <label>提取数量</label>
+                        <input type="number" class="form-control" id="shanchen-count" value="3" min="1" max="10">
+                        <small style="color: #666;">每次提取的代理数量（1-10个）</small>
+                    </div>
+                    <div class="form-group">
+                        <label>省份编号（可选）</label>
+                        <input type="text" class="form-control" id="shanchen-province" placeholder="不填则随机">
+                        <small style="color: #666;">省份编号，如：110000（北京），不填则随机分配</small>
+                    </div>
+                    <div class="form-group">
+                        <label>城市编号（可选）</label>
+                        <input type="text" class="form-control" id="shanchen-city" placeholder="不填则随机">
+                        <small style="color: #666;">城市编号，如：110100，不填则随机分配</small>
+                    </div>
+                </div>
+
                 <div class="actions">
-                    <button class="btn btn-secondary" onclick="saveJuliangConfig()">保存配置</button>
-                    <button class="btn btn-primary" onclick="testJuliangProxy()">测试代理</button>
+                    <button class="btn btn-secondary" onclick="saveProxyConfig()">保存配置</button>
+                    <button class="btn btn-primary" onclick="testProxy()" id="test-proxy-btn" disabled>测试代理</button>
                 </div>
             </div>
 
@@ -640,7 +686,7 @@
             loadProcessList();
             loadCities();
             loadYHChatConfig();
-            loadJuliangConfig();
+            loadProxyConfig();
 
             // 爆发模式切换
             document.getElementById('presale-burst-mode').addEventListener('change', function() {
@@ -1535,25 +1581,42 @@
             };
         }
 
-        // 获取巨量代理配置（从后端全局配置）
-        async function getJuliangConfigAsync() {
+        // 代理类型改变时显示对应配置
+        function onProxyTypeChange() {
+            const proxyType = document.getElementById('proxy-type').value;
+            document.getElementById('juliang-config').style.display = proxyType === 'juliang' ? 'block' : 'none';
+            document.getElementById('shanchen-config').style.display = proxyType === 'shanchen' ? 'block' : 'none';
+            document.getElementById('test-proxy-btn').disabled = proxyType === 'none';
+        }
+
+        // 获取代理配置（从后端全局配置）
+        async function getProxyConfigAsync() {
             try {
-                const result = await apiRequest('/api/process/juliang_config');
-                if (result.success && result.data.effective_api_url) {
-                    return {
-                        juliang_api_url: result.data.effective_api_url
-                    };
+                const result = await apiRequest('/api/process/proxy_config');
+                if (result.success && result.data.type !== 'none') {
+                    return result.data;
                 }
             } catch (e) {
-                console.log('获取巨量代理配置失败:', e);
+                console.log('获取代理配置失败:', e);
+            }
+            return null;
+        }
+
+        // 获取巨量代理配置（从后端全局配置）- 兼容旧接口
+        async function getJuliangConfigAsync() {
+            const proxyConfig = await getProxyConfigAsync();
+            if (proxyConfig && proxyConfig.type === 'juliang') {
+                return {
+                    juliang_api_url: proxyConfig.config?.api_url || ''
+                };
             }
             return {};
         }
 
-        // 同步版本的getJuliangConfig（用于非异步场景，从页面元素读取）
+        // 同步版本的getJuliangConfig（用于非异步场景，从页面元素读取）- 兼容旧接口
         function getJuliangConfig() {
-            const enabled = document.getElementById('juliang-enabled')?.checked || false;
-            if (!enabled) return {};
+            const proxyType = document.getElementById('proxy-type')?.value || 'none';
+            if (proxyType !== 'juliang') return {};
 
             const apiUrl = document.getElementById('juliang-api-url')?.value?.trim() || '';
             if (!apiUrl) {
@@ -1626,21 +1689,45 @@
             }
         }
 
-        // 保存巨量代理配置到后端（全局配置）
-        async function saveJuliangConfig() {
+        // 保存代理配置到后端（全局配置）
+        async function saveProxyConfig() {
+            const proxyType = document.getElementById('proxy-type').value;
             const config = {
-                enabled: document.getElementById('juliang-enabled')?.checked || false,
-                api_url: document.getElementById('juliang-api-url')?.value?.trim() || ''
+                proxy_type: proxyType,
+                juliang_api_url: '',
+                shanchen_api_key: '',
+                shanchen_time: 1,
+                shanchen_count: 3,
+                shanchen_province: '',
+                shanchen_city: ''
             };
 
+            if (proxyType === 'juliang') {
+                config.juliang_api_url = document.getElementById('juliang-api-url')?.value?.trim() || '';
+                if (!config.juliang_api_url) {
+                    alert('请先填写巨量代理API地址');
+                    return;
+                }
+            } else if (proxyType === 'shanchen') {
+                config.shanchen_api_key = document.getElementById('shanchen-api-key')?.value?.trim() || '';
+                config.shanchen_time = parseInt(document.getElementById('shanchen-time')?.value) || 1;
+                config.shanchen_count = parseInt(document.getElementById('shanchen-count')?.value) || 3;
+                config.shanchen_province = document.getElementById('shanchen-province')?.value?.trim() || '';
+                config.shanchen_city = document.getElementById('shanchen-city')?.value?.trim() || '';
+                if (!config.shanchen_api_key) {
+                    alert('请先填写闪臣代理API密钥');
+                    return;
+                }
+            }
+
             try {
-                const result = await apiRequest('/api/process/juliang_config', {
+                const result = await apiRequest('/api/process/proxy_config', {
                     method: 'POST',
                     body: JSON.stringify(config)
                 });
 
                 if (result.success) {
-                    alert('巨量代理配置已保存（全局配置）');
+                    alert('代理配置已保存（全局配置）');
                 } else {
                     alert('保存失败: ' + (result.error || '未知错误'));
                 }
@@ -1649,40 +1736,83 @@
             }
         }
 
-        // 加载巨量代理配置（从后端全局配置）
-        async function loadJuliangConfig() {
+        // 加载代理配置（从后端全局配置）
+        async function loadProxyConfig() {
             try {
-                const result = await apiRequest('/api/process/juliang_config');
+                const result = await apiRequest('/api/process/proxy_config');
                 if (result.success) {
                     const config = result.data;
-                    if (config.api_url) {
-                        document.getElementById('juliang-api-url').value = config.api_url;
+                    document.getElementById('proxy-type').value = config.type || 'none';
+
+                    // 设置巨量配置
+                    if (config.juliang?.api_url) {
+                        document.getElementById('juliang-api-url').value = config.juliang.api_url;
                     }
-                    document.getElementById('juliang-enabled').checked = config.enabled || false;
+
+                    // 设置闪臣配置
+                    if (config.shanchen) {
+                        if (config.shanchen.api_key) {
+                            document.getElementById('shanchen-api-key').value = config.shanchen.api_key;
+                        }
+                        document.getElementById('shanchen-time').value = config.shanchen.time_minutes || 1;
+                        document.getElementById('shanchen-count').value = config.shanchen.count || 3;
+                        document.getElementById('shanchen-province').value = config.shanchen.province || '';
+                        document.getElementById('shanchen-city').value = config.shanchen.city || '';
+                    }
+
+                    // 触发显示切换
+                    onProxyTypeChange();
                 }
             } catch (e) {
-                console.log('加载巨量代理配置失败:', e);
+                console.log('加载代理配置失败:', e);
             }
         }
 
-        // 测试巨量代理
-        async function testJuliangProxy() {
-            const apiUrl = document.getElementById('juliang-api-url')?.value?.trim();
+        // 兼容旧接口
+        async function saveJuliangConfig() {
+            await saveProxyConfig();
+        }
 
-            if (!apiUrl) {
-                alert('请先填写巨量代理API地址');
+        async function loadJuliangConfig() {
+            await loadProxyConfig();
+        }
+
+        // 测试代理
+        async function testProxy() {
+            const proxyType = document.getElementById('proxy-type').value;
+            if (proxyType === 'none') {
+                alert('请先选择代理类型');
                 return;
             }
 
-            const btn = document.querySelector('button[onclick="testJuliangProxy()"]');
+            let config = {};
+            if (proxyType === 'juliang') {
+                config.api_url = document.getElementById('juliang-api-url')?.value?.trim();
+                if (!config.api_url) {
+                    alert('请先填写巨量代理API地址');
+                    return;
+                }
+            } else if (proxyType === 'shanchen') {
+                config.api_key = document.getElementById('shanchen-api-key')?.value?.trim();
+                config.time_minutes = parseInt(document.getElementById('shanchen-time')?.value) || 1;
+                config.count = parseInt(document.getElementById('shanchen-count')?.value) || 3;
+                config.province = document.getElementById('shanchen-province')?.value?.trim() || '';
+                config.city = document.getElementById('shanchen-city')?.value?.trim() || '';
+                if (!config.api_key) {
+                    alert('请先填写闪臣代理API密钥');
+                    return;
+                }
+            }
+
+            const btn = document.getElementById('test-proxy-btn');
             const originalText = btn.textContent;
             btn.textContent = '测试中...';
             btn.disabled = true;
 
             try {
-                const result = await apiRequest('/api/process/test_juliang_proxy', {
+                const result = await apiRequest('/api/process/test_proxy', {
                     method: 'POST',
-                    body: JSON.stringify({ api_url: apiUrl })
+                    body: JSON.stringify({ proxy_type: proxyType, config })
                 });
 
                 if (result.success) {
@@ -1694,8 +1824,13 @@
                 alert('请求失败: ' + e.message);
             } finally {
                 btn.textContent = originalText;
-                btn.disabled = false;
+                btn.disabled = proxyType === 'none';
             }
+        }
+
+        // 兼容旧接口
+        async function testJuliangProxy() {
+            await testProxy();
         }
 
         function showProcessLog(processId) {
